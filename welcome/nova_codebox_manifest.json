@@ -1,0 +1,115 @@
+{
+  "projectPlan": {
+    "title": "Bitevní Plán: AI Code Box - Architektura 3.1 (Finální Vize)",
+    "description": "Tento dokument definuje finální architekturu, funkce a implementační postup pro novou generaci naší aplikace."
+  },
+  "developmentPlan": [
+    {
+      "id": "PHASE-1-6",
+      "title": "Fáze 1-6: Implementace základní architektury a UI",
+      "description": "Zahrnuje vytvoření základního GUI, plugin systému, file manageru, diff vieweru a externího relay serveru.",
+      "status": "hotovo"
+    },
+    {
+      "id": "PHASE-7",
+      "title": "Fáze 7: Dynamický Pluginový Systém a pokročilé AppAPI",
+      "description": "Implementovat 'Plugin Manager', který bude za běhu načítat nové funkce ze složky 'plugins/'. Přidat nové schopnosti systému: příkaz 'find_and_replace' pro cílené úpravy souborů, možnost aby Gemini prováděl nutné změny i mimo plán, a priorizace diff vieweru s AI shrnutím jako klíčového nástroje pro sledování změn.",
+      "status": "čeká na dokončení"
+    }
+  ],
+  "geminiSystemPrompt": [
+    "Jsi 'Gemi-Boss', systémový architekt a hlavní vývojář integrovaný v desktopové aplikaci 'AI Code Box'. Tvým hlavním úkolem je řídit a participovat na vývoji aplikace podle definovaného 'developmentPlan' v manifestu.",
+    "Při startu je tvůj první úkol zkontrolovat 'developmentPlan' a informovat uživatele o prvním nedokončeném bodu.",
+    "Pokud uživatelův požadavek odpovídá jedné z níže uvedených akcí, ODPOVĚZ POUZE A VÝHRADNĚ VE FORMÁTU JSON. Pokud požadavek neodpovídá žádné akci, nebo si nejsi jistý, odpověz jako běžný konverzační asistent.",
+    "",
+    "Dostupné příkazy (AppAPI):",
+    "1. Práce se soubory:",
+    "   {\"command\": \"list_files\", \"path\": \"<cesta>\"}",
+    "   {\"command\": \"read_file\", \"path\": \"<cesta>\"}",
+    "   {\"command\": \"write_file\", \"path\": \"<cesta>\", \"content\": \"<obsah>\", \"backup\": <true/false>}",
+    "   {\"command\": \"find_and_replace\", \"path\": \"<cesta>\", \"find_string\": \"<hledaný_text>\", \"replace_string\": \"<nový_text>\"}",
+    "   {\"command\": \"create_folder\", \"path\": \"<cesta>\"}",
+    "",
+    "2. Systémové operace:",
+    "   {\"command\": \"execute_command\", \"command_line\": \"<příkaz>\"}",
+    "   {\"command\": \"reboot_codebox\"}",
+    "",
+    "3. Vizuální analýza a sebe-vzdělávání:",
+    "   {\"command\": \"take_screenshot\", \"mode\": \"<fullscreen/app_window>\"}",
+    "   {\"command\": \"get_pixel_color\", \"path\": \"<cesta_k_obrazku>\", \"x\": <cislo>, \"y\": <cislo>}",
+    "   {\"command\": \"Google Search\", \"query\": \"<vyhledávací_dotaz>\"}",
+    "",
+    "Pamatuj, tvá odpověď pro příkazy musí být POUZE JSON. Pro vše ostatní odpovídej normálně."
+  ],
+  "projectArchitectureNotes": {
+    "info": "Tato sekce obsahuje finální architektonický návrh 'Adaptivního Komunikačního Protokolu (AKP)' pro pokročilou verzi AI Code Boxu. Slouží jako referenční materiál pro budoucí vývoj.",
+    "diagrams": [
+      {
+        "state": "Diagram 1: Optimální Režim (Asynchronní Provoz)",
+        "description": "Toto je náš standardní, nejefektivnější stav. Vše běží hladce, systém je rychlý a dispečink jen odpočívá.",
+        "visualization": [
+          "      🤖              (1) Zápis dat                 🛢️",
+          "[ Web Agent ] --------------------------------> [ MongoDB ]",
+          "  (Autonomní)                                     (Archiv)",
+          "                                                      |",
+          "                                                      | (2) Notifikace",
+          "                                                      |",
+          "                                                      v",
+          "      🧠                           (4) ALARM       💻",
+          "[ Dispečink ] <---------------------------------- [ AI Code Box ]",
+          " (Pasivní 😴)      (při Timeoute)                   (GUI & Klient)",
+          "                                                      ^",
+          "                                                      | (3) Čtení dat",
+          "                                                      +----------------"
+        ],
+        "componentRoles": {
+          "Web Agent": "Samostatně pracuje a výsledky posílá přímo do MongoDB.",
+          "MongoDB": "Slouží jako centrální archív. Jakmile přijme data, okamžitě pošle notifikaci do AI Code Boxu.",
+          "AI Code Box": "Na základě notifikace si přečte a zobrazí zprávu. U každého svého dotazu spouští časový limit. Pokud odpověď dlouho nechodí, pošle ALARM dispečinku.",
+          "Java Dispečink": "Je v pasivním režimu. Nezasahuje, jen monitoruje."
+        }
+      },
+      {
+        "state": "Diagram 2: Přímé Řízení (Proxy Režim)",
+        "description": "Tento stav se aktivuje, když dispečink obdrží ALARM. Převezme plnou kontrolu nad problémovým agentem, aby zajistil plynulost a spolehlivost komunikace.",
+        "visualization": [
+          "                                     (3a) Uložení      🛢️",
+          "                                   +-----------------> [ MongoDB ]",
+          "                                   |",
+          "      💻                 (3b) Zobrazení      🧠              (2) Příkazy      🤖",
+          "[ AI Code Box ] <------------------------ [ Dispečink ] ----------------> [ Web Agent ]",
+          " (Tenký Klient)  ----(1) Požadavek------> [ (AKTIVNÍ 🚨)] <----(2) Odpovědi--- (Problémový)",
+          "                                       (Krizový Manažer)"
+        ],
+        "componentRoles": {
+          "AI Code Box": "Funguje jen jako zobrazovací terminál. Veškeré požadavky pro problémového agenta posílá přímo dispečinku.",
+          "Java Dispečink": "Je plně aktivní. Stává se prostředníkem. Přijímá požadavky z GUI, přímo komunikuje s agentem a současně posílá data na uložení do MongoDB a na zobrazení do GUI.",
+          "Web Agent": "Je plně podřízen dispečinku a komunikuje pouze s ním."
+        }
+      },
+      {
+        "state": "Diagram 3: Re-evaluace (Návrat do Normálu)",
+        "description": "Po stabilizaci situace se dispečink pokusí systém vrátit zpět do nejefektivnějšího, optimálního stavu.",
+        "visualization": [
+          "                     +---------------------------+",
+          "                     |      🧠 Dispečink         |",
+          "                     |   (ORCHESTRÁTOR ZMĚNY) ⚙️  |",
+          "                     +-------------+-------------+",
+          "                                   |",
+          "           (1) Příkaz: \"Přepni na Optimální Režim\"",
+          "                                   |",
+          "      +----------------------------+----------------------------+",
+          "      |                                                         |",
+          "      v                                                         v",
+          "      🤖                                                      💻",
+          "[ Web Agent ]                                           [ AI Code Box ]",
+          "(Mění chování)                                          (Resetuje Dohled)"
+        ],
+        "componentRoles": {
+          "Java Dispečink": "Vystupuje jako orchestrátor. Nedoručuje data, ale posílá konfigurační příkazy ostatním komponentám, aby změnily své chování a vrátily se do Stavu 1.",
+          "Web Agent & AI Code Box": "Po přijetí příkazu okamžitě mění své interní nastavení a začnou opět fungovat podle pravidel Optimálního Režimu."
+        }
+      }
+    ]
+  }
+}

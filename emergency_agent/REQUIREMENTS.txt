@@ -1,0 +1,32 @@
+# AI Code Box - Dr. Gemi Agent
+# Python Dependencies
+
+# Core Flask Framework
+Flask==2.3.3
+Flask-SocketIO==5.3.6
+
+# Google APIs
+google-generativeai>=0.3.0
+google-cloud-texttospeech>=2.16.3
+google-cloud-speech>=2.21.0
+google-cloud-vision>=3.4.4
+
+# Database
+pymongo>=4.5.0
+
+# Utilities
+python-dotenv>=1.0.0
+python-socketio[client]>=5.8.0
+Werkzeug>=2.3.7
+
+# File processing
+Pillow>=10.0.0
+
+# Development tools (optional)
+# selenium>=4.15.0
+# webdriver-manager>=4.0.0
+# playwright>=1.39.0
+
+# Optional audio processing
+# pydub>=0.25.1
+# numpy>=1.24.0

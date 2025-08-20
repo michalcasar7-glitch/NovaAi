@@ -1,0 +1,12 @@
+{
+  "receiveParams": {
+    "enabled": true,
+    "messageContainerSelector": ".response-container",
+    "messageContentSelector": ".markdown"
+  },
+  "sendParams": {
+    "enabled": false,
+    "inputFieldSelector": "CHANGE_ME",
+    "sendButtonSelector": "CHANGE_ME"
+  }
+}

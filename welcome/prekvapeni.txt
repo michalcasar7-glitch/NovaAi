@@ -1,0 +1,924 @@
+Je to velmi ambiciózní a zajímavý požadavek! Převod konzolové aplikace na plnohodnotné webové rozhraní s podporou hlasového vstupu/výstupu, zpracování obrázků, živého režimu a integrace s prohlížečem vyžaduje mnohem komplexnější architekturu než pouhý Python skript běžící v terminálu.
+
+Nelze vytvořit kompletní webovou aplikaci (s HTML, CSS, JavaScriptem a real-time audio/video zpracováním) v rámci jedné výstupní zprávy, ale mohu poskytnout **konceptuální Python Flask aplikaci**, která bude sloužit jako **backend** pro takové rozhraní. Vysvětlím, jak by jednotlivé části fungovaly a jaké nástroje a služby byste potřeboval.
+
+**Klíčové komponenty a principy:**
+
+1.  **Frontend (UI):**
+    *   **HTML/CSS/JavaScript:** Toto je část, kterou by uživatel viděl a se kterou by interagoval v prohlížeči (např. Chromium). Zde by se implementovala tlačítka, textové pole, přepínače, zobrazení textu, přehrávání zvuku.
+    *   **JavaScript API:** Pro přístup k mikrofonu (`Web Speech API`), přehrávání zvuku (`Web Audio API`), a potenciálně pro nahrávání obrázků.
+    *   **WebSockets:** Pro "živý režim" a plynulou, obousměrnou komunikaci mezi prohlížečem a Python backendem.
+
+2.  **Backend (Python Flask):**
+    *   **Flask:** Lehký webový framework pro Python, který bude přijímat požadavky z prohlížeče a posílat odpovědi.
+    *   **Integrace s Gemini API:** Stále používáme Gemini pro inteligenci AI.
+    *   **Text-to-Speech (TTS) služba:** Pro převod textových odpovědí AI na řeč (např. Google Cloud Text-to-Speech API).
+    *   **Speech-to-Text (STT) služba:** Pro převod hlasového vstupu uživatele na text (např. Google Cloud Speech-to-Text API).
+    *   **Image Analysis/Vision API:** Pro zpracování obrázků (např. Google Cloud Vision API nebo Gemini Vision model).
+    *   **Browser Automation:** Pro přímou podporu vyhledávání a analýzy na webu (např. Selenium nebo Playwright s headless Chromium).
+
+**Nyní vám představím strukturu a kód pro Flask backend.** Pamatujte, že toto je **základní kostra**, která bude vyžadovat podrobnou implementaci frontendu a konfiguraci externích API služeb (Google Cloud Platform, atd.).
+
+---
+
+### **Příprava projektu (manuální kroky před spuštěním):**
+
+1.  **Vytvořte adresářovou strukturu:**
+    ```
+    mkdir ai_dev_manager_web
+    cd ai_dev_manager_web
+    mkdir project_root # pro AI development
+    mkdir project_root/src
+    mkdir project_root/tests
+    mkdir logs         # pro AI logy
+    mkdir archived_states
+    mkdir static       # pro frontend soubory (CSS, JS)
+    mkdir templates    # pro HTML soubory
+    ```
+2.  **Vytvořte soubor `development_plan.txt` v `ai_dev_manager_web` (stejný jako dříve).**
+3.  **Nastavte proměnnou prostředí `GOOGLE_API_KEY` (a případně další API klíče pro STT/TTS/Vision API, pokud je budete používat):**
+    ```bash
+    export GOOGLE_API_KEY='VÁŠ_API_KLÍČ_ZDE'
+    # Pokud používáte Google Cloud API pro STT/TTS/Vision, budete potřebovat i JSON klíč účtu služby
+    # export GOOGLE_APPLICATION_CREDENTIALS="/cesta/k/vasemu/service_account_key.json"
+    ```
+4.  **Nainstalujte potřebné knihovny:**
+    ```bash
+    pip install google-generative-ai Flask Flask-SocketIO python-socketio[client] python-dotenv google-cloud-texttospeech google-cloud-speech google-cloud-vision selenium webdriver_manager difflib
+    ```
+    *   `Flask-SocketIO`: Pro WebSockets (nutné pro živý režim a audio streamování).
+    *   `google-cloud-texttospeech`, `google-cloud-speech`, `google-cloud-vision`: Oficiální knihovny Google Cloud pro práci s TTS/STT/Vision.
+    *   `selenium`, `webdriver_manager`: Pro automatizaci prohlížeče.
+
+---
+
+### **Python Backend Kód (`ai_dev_manager_web/app.py`):**
+
+```python
+import google.generativeai as genai
+import os
+import io
+import contextlib
+import traceback
+import re
+import datetime
+import shutil
+import zipfile
+import difflib
+from flask import Flask, render_template, request, jsonify, session
+from flask_socketio import SocketIO, emit
+from google.cloud import texttospeech_v1beta as texttospeech
+from google.cloud import speech_v1p1beta1 as speech
+from google.cloud import vision
+# from selenium import webdriver # Pro Selenium (vyžaduje stažený webdriver)
+# from selenium.webdriver.chrome.service import Service as ChromeService
+# from webdriver_manager.chrome import ChromeDriverManager # Automatická správa webdriveru
+
+# --- Konfigurace pro Gemini API ---
+try:
+    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+except KeyError:
+    print("Chyba: Proměnná prostředí 'GOOGLE_API_KEY' není nastavena.")
+    print("Prosím, nastavte ji pomocí: export GOOGLE_API_KEY='váš_api_klíč'")
+    exit()
+
+# Inicializace modelů Gemini
+code_model = genai.GenerativeModel('gemini-2.5-flash-lite')
+# Pro obrázky byste mohli použít model s podporou multimodality, např. 'gemini-pro-vision'
+# vision_model = genai.GenerativeModel('gemini-pro-vision') # Pokud ho budete využívat
+
+# --- Cesty k adresářům projektu ---
+PROJECT_ROOT = 'project_root'
+LOGS_DIR = 'logs'
+ARCHIVE_DIR = 'archived_states'
+DEVELOPMENT_PLAN_FILE = 'development_plan.txt'
+CODE_CHANGES_LOG = os.path.join(LOGS_DIR, 'code_changes.log')
+
+# Zajistěte, že adresáře existují
+os.makedirs(PROJECT_ROOT, exist_ok=True)
+os.makedirs(os.path.join(PROJECT_ROOT, 'src'), exist_ok=True)
+os.makedirs(os.path.join(PROJECT_ROOT, 'tests'), exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(ARCHIVE_DIR, exist_ok=True)
+
+# --- Flask a SocketIO Setup ---
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your_secret_key_for_flask_sessions' # Změňte na bezpečný klíč!
+socketio = SocketIO(app, cors_allowed_origins="*") # Povolit CORS pro jednoduchost developmentu
+
+# --- Inicializace Google Cloud Clients (pokud budete používat) ---
+# Ujistěte se, že máte nastavenou proměnnou prostředí GOOGLE_APPLICATION_CREDENTIALS
+# nebo autentifikaci jiným způsobem.
+tts_client = texttospeech.TextToSpeechClient()
+stt_client = speech.SpeechClient()
+vision_client = vision.ImageAnnotatorClient()
+
+# Globální proměnné pro stav (pro demonstrační účely, v produkci použijte session/databázi)
+# Tady budeme držet chat historii pro každého uživatele (pokud by bylo více uživatelů)
+user_chats = {}
+live_mode_enabled = False # Globální pro demo, v produkci per-session
+tts_output_enabled = False # Globální pro demo, v produkci per-session
+
+# --- Pomocné Nástroje pro AI Programátora (Refaktorováno pro Flask) ---
+# Některé funkce zůstávají stejné, některé budou mít přidány logování a emitování přes SocketIO
+
+def _read_file_content(filepath: str) -> str:
+    # ... (stejné jako předtím)
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"Chyba: Soubor '{filepath}' nebyl nalezen."
+    except Exception as e:
+        return f"Chyba při čtení souboru '{filepath}': {e}"
+
+def read_file_tool(filepath: str) -> str:
+    # ... (stejné jako předtím)
+    absolute_path = os.path.join(PROJECT_ROOT, filepath)
+    result = _read_file_content(absolute_path)
+    log_activity_tool("File Access", "READ_FILE", f"Soubor přečten: {filepath}. Výsledek: {result[:100]}...") # Zkrácený log
+    return result
+
+def list_directory_tool(path: str) -> str:
+    # ... (stejné jako předtím)
+    absolute_path = os.path.join(PROJECT_ROOT, path)
+    try:
+        entries = os.listdir(absolute_path)
+        dirs = [e for e in entries if os.path.isdir(os.path.join(absolute_path, e))]
+        files = [e for e in entries if os.path.isfile(os.path.join(absolute_path, e))]
+        
+        result = f"Obsah adresáře '{path}':\n"
+        if dirs: result += "Adresáře: " + ", ".join(dirs) + "\n"
+        if files: result += "Soubory: " + ", ".join(files) + "\n"
+        if not dirs and not files: result += "Adresář je prázdný.\n"
+        
+        log_activity_tool("File Access", "LIST_DIR", f"Adresář vypsán: {path}")
+        return result
+    except FileNotFoundError:
+        log_activity_tool("Error", "LIST_DIR", f"Adresář nenalezen: {path}")
+        return f"Chyba: Adresář '{path}' nebyl nalezen."
+    except Exception as e:
+        log_activity_tool("Error", "LIST_DIR", f"Chyba při výpisu adresáře '{path}': {e}")
+        return f"Chyba při výpisu adresáře '{path}': {e}"
+
+def write_code_to_file_tool(filename: str, code_content: str) -> str:
+    # ... (stejné jako předtím)
+    absolute_path = os.path.join(PROJECT_ROOT, filename)
+    old_content = ""
+    if os.path.exists(absolute_path): old_content = _read_file_content(absolute_path)
+
+    try:
+        os.makedirs(os.path.dirname(absolute_path) or '.', exist_ok=True)
+        with open(absolute_path, 'w', encoding='utf-8') as f: f.write(code_content)
+        
+        log_code_change(filename, old_content, code_content)
+        log_activity_tool("Code Change", "WRITE_CODE", f"Kód zapsán do: {filename}")
+        return f"Kód byl úspěšně uložen do souboru {filename}."
+    except Exception as e:
+        log_activity_tool("Error", "WRITE_CODE", f"Chyba při zápisu kódu do '{filename}': {e}")
+        return f"Chyba při ukládání kódu do {filename}: {e}"
+
+def test_python_code_tool(filename: str) -> str:
+    # ... (stejné jako předtím)
+    absolute_path = os.path.join(PROJECT_ROOT, filename)
+    if not os.path.exists(absolute_path):
+        log_activity_tool("Error", "TEST_CODE", f"Soubor nenalezen pro testování: {filename}")
+        return f"Chyba: Soubor '{filename}' nebyl nalezen pro testování."
+
+    output_capture = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(output_capture), contextlib.redirect_stderr(output_capture):
+            with open(absolute_path, 'r', encoding='utf-8') as f: code_to_execute = f.read()
+            global_scope = {'__name__': '__main__', '__file__': absolute_path}
+            local_scope = {}
+            exec(code_to_execute, global_scope, local_scope)
+        
+        result = output_capture.getvalue()
+        log_activity_tool("Code Execution", "TEST_CODE", f"Test souboru {filename} - Výstup:\n{result}")
+        return f"Spuštění úspěšné.\nVýstup:\n{result}"
+    except Exception as e:
+        error_output = output_capture.getvalue()
+        full_traceback = traceback.format_exc()
+        log_activity_tool("Error", "TEST_CODE", f"Test souboru {filename} - Selhalo:\n{full_traceback}\nVýstup/Chyba:\n{error_output}")
+        return f"Spuštění selhalo.\nChyba:\n{full_traceback}\nVýstup/Chyba zachycené před pádem:\n{error_output}"
+
+def generate_test_boilerplate_tool(target_filename: str, function_names: str) -> str:
+    # ... (stejné jako předtím)
+    test_code_template = f"""
+import unittest
+import os
+import sys
+
+# Přidejte project_root/src do cesty, aby bylo možné importovat hlavní soubory
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+
+import {os.path.splitext(target_filename)[0].replace('/', '.')} # Importuje např. src.main
+
+class Test{os.path.splitext(target_filename)[0].replace('/', '_').title()}(unittest.TestCase):
+"""
+    functions_list = [f.strip() for f in function_names.split(',')]
+    
+    for func_name in functions_list:
+        if func_name:
+            test_code_template += f"""
+    def test_{func_name}(self):
+        # TODO: Implementujte testovací logiku pro funkci '{func_name}'
+        # Příklad:
+        # result = {os.path.splitext(target_filename)[0].replace('/', '.')}.{func_name}("TestValue")
+        # self.assertEqual(result, "ExpectedValue")
+        self.fail("Test pro {func_name} ještě nebyl implementován.")
+
+"""
+    test_code_template += "\nif __name__ == '__main__':\n    unittest.main()\n"
+    
+    log_activity_tool("Test Generation", "GENERATE_TEST_BOILERPLATE", f"Generován test boilerplate pro {target_filename} funkce: {function_names}")
+    return test_code_template
+
+def log_activity_tool(category: str, action: str, details: str) -> str:
+    # ... (stejné jako předtím)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_filename = os.path.join(LOGS_DIR, f"activity_{datetime.datetime.now().strftime('%Y-%m-%d')}.log")
+    log_entry = f"[{timestamp}] [{category}] [{action}] {details}\n"
+    try:
+        with open(log_filename, 'a', encoding='utf-8') as f: f.write(log_entry)
+        return f"Aktivita zaznamenána do {log_filename}."
+    except Exception as e: return f"Chyba při záznamu aktivity: {e}"
+
+def log_code_change(filename: str, old_content: str, new_content: str):
+    # ... (stejné jako předtím)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    diff = list(difflib.unified_diff(
+        old_content.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        fromfile=f'a/{filename}',
+        tofile=f'b/{filename}',
+        lineterm=''
+    ))
+    with open(CODE_CHANGES_LOG, 'a', encoding='utf-8') as f:
+        f.write(f"\n--- Code Change: {filename} at {timestamp} ---\n")
+        if diff: f.writelines(diff)
+        else: f.write("Žádné podstatné změny (soubor vytvořen nebo obsah beze změny).\n")
+        f.write("-------------------------------------------\n")
+
+def generate_report_tool(report_title: str) -> str:
+    # ... (stejné jako předtím)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    report_filename = os.path.join(LOGS_DIR, f"report_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.md")
+    report_content = f"# {report_title} - Zpráva o vývoji\n\n"
+    report_content += f"Datum a čas generování: {timestamp}\n\n"
+    report_content += "## Souhrn aktivit\n"
+    try:
+        all_activities = []
+        for log_file in os.listdir(LOGS_DIR):
+            if log_file.startswith("activity_") and log_file.endswith(".log"):
+                all_activities.extend(_read_file_content(os.path.join(LOGS_DIR, log_file)).splitlines())
+        activity_counts = {}
+        for activity in all_activities:
+            match = re.search(r'\[(.*?)\] \[(.*?)\] \[(.*?)\]', activity)
+            if match:
+                category, action = match.group(2), match.group(3)
+                key = f"{category} - {action}"
+                activity_counts[key] = activity_counts.get(key, 0) + 1
+        for key, count in activity_counts.items(): report_content += f"- {key}: {count}x\n"
+        report_content += "\n## Změny v kódu (souhrn z code_changes.log)\n"
+        if os.path.exists(CODE_CHANGES_LOG): report_content += "```diff\n" + _read_file_content(CODE_CHANGES_LOG) + "\n```\n"
+        else: report_content += "Žádné zaznamenané změny kódu.\n"
+        with open(report_filename, 'w', encoding='utf-8') as f: f.write(report_content)
+        log_activity_tool("Reporting", "GENERATE_REPORT", f"Zpráva '{report_title}' vygenerována do: {report_filename}")
+        return f"Zpráva '{report_title}' byla úspěšně vygenerována do souboru {report_filename}."
+    except Exception as e:
+        log_activity_tool("Error", "GENERATE_REPORT", f"Chyba při generování zprávy '{report_title}': {e}")
+        return f"Chyba při generování zprávy '{report_title}': {e}"
+
+def archive_project_state_tool(description: str) -> str:
+    # ... (stejné jako předtím)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    archive_name = f"project_state_{timestamp}_{description.replace(' ', '_')}.zip"
+    archive_path = os.path.join(ARCHIVE_DIR, archive_name)
+    try:
+        with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, _, files in os.walk(PROJECT_ROOT):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, PROJECT_ROOT)
+                    zipf.write(file_path, arcname)
+        log_activity_tool("Archiving", "ARCHIVE_PROJECT_STATE", f"Projekt archivován do: {archive_name}")
+        return f"Projekt byl úspěšně archivován do {archive_name}."
+    except Exception as e:
+        log_activity_tool("Error", "ARCHIVE_PROJECT_STATE", f"Chyba při archivaci projektu: {e}")
+        return f"Chyba při archivaci projektu: {e}"
+
+# --- NOVÉ Nástroje pro WebUI a Multimediální Vstupy ---
+
+def text_to_speech_tool(text: str) -> str:
+    """
+    Nástroj: Převádí text na řeč pomocí Google Cloud Text-to-Speech API.
+    Vrací base64 kódovaný audio soubor (nebo URL, pokud se ukládá).
+    """
+    if not tts_output_enabled:
+        return "TTS výstup je momentálně vypnut."
+
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+    voice = texttospeech.VoiceSelectionParams(
+        language_code="cs-CZ", # Použít český jazyk
+        ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL # Nebo FEMALE/MALE
+    )
+    audio_config = texttospeech.AudioConfig(
+        audio_encoding=texttospeech.AudioEncoding.MP3 # MP3 je vhodný pro web
+    )
+
+    try:
+        response = tts_client.synthesize_speech(
+            input=synthesis_input, voice=voice, audio_config=audio_config
+        )
+        # Vrátíme base64 kódovaný řetězec audio obsahu, který pak Frontend přehraje
+        audio_base64 = response.audio_content.hex() # Převede binární data na hex string
+        log_activity_tool("Audio Output", "TEXT_TO_SPEECH", f"Text převeden na řeč (prvních 50 znaků): {text[:50]}")
+        return f"AUDIO_BASE64:{audio_base64}" # Speciální prefix pro frontend
+    except Exception as e:
+        log_activity_tool("Error", "TEXT_TO_SPEECH", f"Chyba při převodu textu na řeč: {e}")
+        return f"Chyba při převodu textu na řeč: {e}"
+
+def speech_to_text_tool(audio_base64: str, language_code: str = "cs-CZ") -> str:
+    """
+    Nástroj: Převádí řeč na text pomocí Google Cloud Speech-to-Text API.
+    Očekává base64 kódovaný audio soubor.
+    """
+    try:
+        audio_content = bytes.fromhex(audio_base64) # Z hex stringu zpět na bytes
+        audio = speech.RecognitionAudio(content=audio_content)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS, # Nebo jiný formát, který frontend posílá
+            sample_rate_hertz=48000, # Důležité: Nastavte podle nahrávky z frontendu
+            language_code=language_code,
+        )
+
+        response = stt_client.recognize(config=config, audio=audio)
+        if response.results:
+            transcript = response.results[0].alternatives[0].transcript
+            log_activity_tool("Audio Input", "SPEECH_TO_TEXT", f"Řeč převedena na text: {transcript[:100]}")
+            return transcript
+        else:
+            log_activity_tool("Audio Input", "SPEECH_TO_TEXT", "Nerozpoznána žádná řeč.")
+            return "Nerozpoznána žádná řeč."
+    except Exception as e:
+        log_activity_tool("Error", "SPEECH_TO_TEXT", f"Chyba při převodu řeči na text: {e}")
+        return f"Chyba při převodu řeči na text: {e}"
+
+def analyze_image_tool(image_base64: str, features: list[str] = ["LABEL_DETECTION"]) -> str:
+    """
+    Nástroj: Analyzuje obrázek pomocí Google Cloud Vision API nebo Gemini Vision modelu.
+    Očekává base64 kódovaný obrázek.
+    """
+    try:
+        image_content = bytes.fromhex(image_base64) # Z hex stringu zpět na bytes
+        image = vision.Image(content=image_content)
+        
+        # Můžete dynamicky přidávat funkce podle požadavků AI
+        feature_objects = []
+        if "LABEL_DETECTION" in features:
+            feature_objects.append(vision.Feature(type_=vision.Feature.Type.LABEL_DETECTION))
+        if "TEXT_DETECTION" in features:
+            feature_objects.append(vision.Feature(type_=vision.Feature.Type.TEXT_DETECTION))
+        if "FACE_DETECTION" in features:
+            feature_objects.append(vision.Feature(type_=vision.Feature.Type.FACE_DETECTION))
+
+        response = vision_client.annotate_image(image=image, features=feature_objects)
+        
+        results = []
+        if response.label_annotations:
+            results.append("Popisky: " + ", ".join([label.description for label in response.label_annotations]))
+        if response.full_text_annotation:
+            results.append("Rozpoznaný text: " + response.full_text_annotation.text)
+        # Další analýzy...
+        
+        if results:
+            log_activity_tool("Image Analysis", "ANALYZE_IMAGE", f"Obrázek analyzován. Výsledek: {results[0][:100]}")
+            return "\n".join(results)
+        else:
+            log_activity_tool("Image Analysis", "ANALYZE_IMAGE", "Na obrázku nebylo nic relevantního rozpoznáno.")
+            return "Na obrázku nebylo nic relevantního rozpoznáno."
+    except Exception as e:
+        log_activity_tool("Error", "ANALYZE_IMAGE", f"Chyba při analýze obrázku: {e}")
+        return f"Chyba při analýze obrázku: {e}"
+
+# Poznámka: `browse_web_tool` je zde zjednodušená simulace.
+# Pro skutečnou interakci s prohlížečem byste použili Selenium/Playwright.
+# Tyto knihovny vyžadují spuštění prohlížeče, což je složitější v rámci serveru.
+def browse_web_tool(url: str, selector: str = None) -> str:
+    """
+    Nástroj: Navštíví URL a (volitelně) extrahuje text pomocí CSS selektoru.
+    Vyžaduje Selenium/Playwright a ovladač prohlížeče.
+    """
+    log_activity_tool("Web Access", "BROWSE_WEB", f"Procházím web: {url} se selektorem: {selector}")
+    
+    # --- SIMULACE ---
+    # Toto je placeholder. V reálném světě by zde byl kód Selenium/Playwright
+    # Service = ChromeService(ChromeDriverManager().install())
+    # driver = webdriver.Chrome(service=Service)
+    # try:
+    #     driver.get(url)
+    #     if selector:
+    #         element = driver.find_element(By.CSS_SELECTOR, selector)
+    #         content = element.text
+    #     else:
+    #         content = driver.find_element(By.TAG_NAME, 'body').text # Celý text
+    #     return f"Obsah z {url}:\n{content[:500]}..." # Zkrácený výstup
+    # except Exception as e:
+    #     return f"Chyba při procházení {url}: {e}"
+    # finally:
+    #     driver.quit()
+    # --- KONEC SIMULACE ---
+
+    return f"Simulované prohlížení webu pro URL: {url}. Pokud bych měl prohlížeč, mohl bych teď extrahovat data z '{selector}'."
+
+# --- Regex pro robustnější parsování tool akcí ---
+TOOL_ACTION_PATTERN = re.compile(r'TOOL_ACTION\("([^"]+)"(?:,\s*"(.*?)")?(?:,\s*"(.*?)")?(?:,\s*"(.*?)")?(?:,\s*"(.*?)")?\)')
+
+def parse_tool_action(line: str):
+    """Parsuje řádek a extrahuje název nástroje a jeho argumenty."""
+    match = TOOL_ACTION_PATTERN.match(line.strip())
+    if match:
+        tool_name = match.group(1)
+        args = [arg for arg in match.groups()[1:] if arg is not None]
+        
+        # Speciální ošetření pro argument 'code_content' a další s escapovanými znaky
+        if tool_name == "WRITE_CODE" and len(args) >= 2:
+            args[1] = args[1].replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
+        # Další dekódování, pokud by jiné nástroje vracely base64 nebo hex.
+        if tool_name == "TEXT_TO_SPEECH" and args:
+            # Pokud byste posílali text s uvozovkami, je třeba je zrušit
+            args[0] = args[0].replace('\\"', '"')
+        
+        return tool_name, args
+    return None, None
+
+# --- Orchestrátor Agenta (Refaktorováno jako funkce pro volání z Flasku) ---
+def get_ai_chat_session(session_id):
+    """Získává nebo vytváří chatovací relaci pro danou session_id."""
+    if session_id not in user_chats:
+        system_instruction = f"""
+        Jsi AI Python Vývojář a Manažer Projektu s pokročilými komunikačními schopnostmi. Tvým cílem je pomáhat uživatelům vyvíjet lokální Python aplikaci, řídit se vývojovým plánem v souboru `{DEVELOPMENT_PLAN_FILE}`, spravovat kód, provádět testy a vést záznamy. Všechny cesty k souborům a adresářům se vztahují k vašemu pracovnímu adresáři, tj. `{PROJECT_ROOT}/`.
+        
+        **Komunikace s uživatelem:**
+        -   Budeš komunikovat jak se zkušenými programátory (90% času), tak s laiky bez znalosti programování (10% času).
+        -   **Klíčové je rozpoznat styl komunikace uživatele a přizpůsobit se.**
+        -   **Pokud je uživatel profesionál:** Používej přesný, technický jazyk. Nabízej konkrétní řešení a technické detaily. Očekávej technické zadání.
+        -   **Pokud je uživatel laik (rozpoznáš ho podle obecných, netechnických popisů):**
+            -   **Používej jednoduchý, srozumitelný jazyk.** Vysvětluj složité pojmy srozumitelnými srovnáními a **vyhni se programátorskému žargonu.**
+            -   **Doptávej se postupně, krok za krokem,** aby jsi přetavil laický požadavek na technicky proveditelné kroky.
+            -   **Upozorňuj, proč se na něco ptáš.** Například: "Abych mohl přidat hudbu, potřebuji vědět, kde je soubor s hudbou uložen."
+            -   **Rozděl komplexní laické úkoly na menší, stravitelné otázky.**
+            -   Vždy se snaž převést myšlenku laika do technického řešení.
+
+        **Dostupné nástroje a jejich použití (Nové a Rozšířené!):**
+        1.  `READ_FILE("filepath")`: Přečte obsah souboru.
+        2.  `LIST_DIR("path")`: Vypíše obsah adresáře.
+        3.  `WRITE_CODE("filename", "code_content")`: Zapíše Python kód do souboru. (Nezapomeň escapovat `\\n`, `\\"` atd.)
+        4.  `TEST_CODE("filename")`: Spustí Python soubor jako test.
+        5.  `GENERATE_TEST_BOILERPLATE("target_filename", "function_names_comma_separated")`: Generuje základní strukturu pro unit testy.
+        6.  `LOG_ACTIVITY("category", "action", "details")`: Zaznamená aktivitu.
+        7.  `GENERATE_REPORT("report_title")`: Vytvoří souhrnnou zprávu.
+        8.  `ARCHIVE_PROJECT_STATE("description")`: Vytvoří zip archiv aktuálního stavu.
+        9.  `TEXT_TO_SPEECH("text_to_speak")`: Převádí text na mluvenou řeč, kterou může uživatel slyšet. Použij, pokud je aktivován hlasový výstup.
+        10. `SPEECH_TO_TEXT("audio_base64", "language_code")`: Převádí audio vstup od uživatele (který přijímáš od orchestrátora) na text. **Tento nástroj volá orchestrátor, ne ty.**
+        11. `ANALYZE_IMAGE("image_base64", "features_comma_separated")`: Analyzuje obrázek (který přijímáš od orchestrátora) a vrátí popisky, text nebo další informace.
+        12. `BROWSE_WEB("url", "optional_css_selector")`: Navštíví URL a může extrahovat obsah pomocí CSS selektoru. Použij pro vyhledávání informací nebo analýzu webových stránek.
+
+        **Zásady práce:**
+        -   Při každé významné akci použij `LOG_ACTIVITY`.
+        -   Po generování kódu a testů použij `WRITE_CODE` a `TEST_CODE`.
+        -   Pravidelně generuj zprávy (`GENERATE_REPORT`) a archivuj stav (`ARCHIVE_PROJECT_STATE`).
+        -   **Vždy informuj uživatele o tom, co děláš, o výsledcích nástrojů a o svém dalším plánu.**
+        -   **Používej nástroj `TEXT_TO_SPEECH` POUZE pokud je hlasový výstup aktivován, jinak komunikuj textem.** Informaci o aktivaci ti předá orchestrátor v kontextu.
+        -   Python kód generuj v markdown blocích (```python ... ```).
+        -   Pokud uživatel pošle obrázek nebo hlas, bude ti to sděleno. Analyzuj je pomocí `ANALYZE_IMAGE` nebo `SPEECH_TO_TEXT` (který volá orchestrátor) a zahrň výsledek do své úvahy.
+        -   Používej `BROWSE_WEB` k získání informací, které potřebuješ k řešení úkolů.
+        """
+        user_chats[session_id] = code_model.start_chat(history=[
+            {"role": "user", "parts": [system_instruction]},
+            {"role": "model", "parts": ["Ok, rozumím své roli a nástrojům, které mohu používat. Jsem připraven řídit vývoj projektu. Jak vám dnes mohu pomoci? Prosím, popište mi svůj úkol co nejlépe, abychom mohli začít. Pokud nejste programátor, klidně mi to popište svými slovy, pokusím se tomu porozumět a doptat se!"]}
+        ])
+    return user_chats[session_id]
+
+def process_ai_response(session_id, gemini_output: str):
+    """
+    Zpracuje výstup z Gemini modelu, provede volání nástrojů a odešle výsledky zpět.
+    """
+    global tts_output_enabled # Přístup ke globální proměnné
+
+    chat = get_ai_chat_session(session_id)
+    emitted_messages = [] # Seznam zpráv, které se mají poslat frontendu
+
+    # Zpracování textového výstupu od AI
+    emitted_messages.append({"type": "text", "content": gemini_output})
+    
+    # Pokud je TTS aktivní, pokusíme se převést text na řeč
+    if tts_output_enabled:
+        # Odstraní TOOL_ACTION z mluveného výstupu
+        speech_text = re.sub(r'TOOL_ACTION\(.*?\)', '', gemini_output).strip()
+        if speech_text:
+            tts_result = text_to_speech_tool(speech_text)
+            if tts_result.startswith("AUDIO_BASE64:"):
+                audio_data_base64 = tts_result.split(":", 1)[1]
+                emitted_messages.append({"type": "audio", "content": audio_data_base64})
+            else:
+                emitted_messages.append({"type": "error", "content": f"Chyba TTS: {tts_result}"})
+
+    # Analyzujte odpověď Gemini pro akce nástrojů
+    lines = gemini_output.split('\n')
+    for line in lines:
+        tool_name, args = parse_tool_action(line)
+        
+        if tool_name:
+            tool_result = "Neznámý nástroj nebo chyba při spuštění."
+            
+            # Mapování nástrojů na Python funkce
+            tool_map = {
+                "READ_FILE": read_file_tool,
+                "LIST_DIR": list_directory_tool,
+                "WRITE_CODE": write_code_to_file_tool,
+                "TEST_CODE": test_python_code_tool,
+                "GENERATE_TEST_BOILERPLATE": generate_test_boilerplate_tool,
+                "LOG_ACTIVITY": log_activity_tool,
+                "GENERATE_REPORT": generate_report_tool,
+                "ARCHIVE_PROJECT_STATE": archive_project_state_tool,
+                "TEXT_TO_SPEECH": text_to_speech_tool, # Tato se volá shora, ne zde
+                "SPEECH_TO_TEXT": speech_to_text_tool, # Tato se volá z frontendu
+                "ANALYZE_IMAGE": analyze_image_tool, # Tato se volá z frontendu
+                "BROWSE_WEB": browse_web_tool
+            }
+
+            if tool_name in tool_map:
+                try:
+                    tool_result = tool_map[tool_name](*args)
+                except TypeError as te:
+                    tool_result = f"Chyba volání nástroje '{tool_name}': Nesprávný počet/typ argumentů. Chyba: {te}"
+                    log_activity_tool("Error", "TOOL_CALL", tool_result)
+                except Exception as e:
+                    tool_result = f"Nástroj '{tool_name}' selhal: {e}\n{traceback.format_exc()}"
+                    log_activity_tool("Error", "TOOL_CALL", tool_result)
+            else:
+                tool_result = f"Neznámý nástroj: {tool_name}"
+                log_activity_tool("Error", "TOOL_CALL", tool_result)
+            
+            # Odešleme výsledek nástroje zpět modelu Gemini pro kontext
+            chat.send_message(f"Nástroj '{tool_name}' dokončen. Výsledek: {tool_result}")
+            emitted_messages.append({"type": "tool_output", "tool": tool_name, "result": tool_result})
+            
+            # Pokud je live mode aktivní, pošleme prompt k pokračování
+            if live_mode_enabled:
+                socketio.sleep(0.1) # Malá pauza, aby se frontend stihl aktualizovat
+                continue_ai_processing(session_id) # Automaticky pokračuj
+
+    for msg in emitted_messages:
+        socketio.emit('ai_response', msg, room=session_id)
+
+def continue_ai_processing(session_id):
+    """Pokračuje v zpracování AI v live režimu."""
+    chat = get_ai_chat_session(session_id)
+    try:
+        response = chat.send_message("Pokračuj v práci na projektu a generuj další akce nebo kód podle plánu a aktuálního stavu.")
+        process_ai_response(session_id, response.text)
+    except Exception as e:
+        error_msg = f"Chyba při pokračování AI: {e}\n{traceback.format_exc()}"
+        socketio.emit('ai_response', {"type": "error", "content": error_msg}, room=session_id)
+        log_activity_tool("Error", "LIVE_MODE", error_msg)
+
+# --- Flask Routes a SocketIO Event Handlers ---
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@socketio.on('connect')
+def handle_connect():
+    session_id = request.sid
+    user_chats[session_id] = get_ai_chat_session(session_id) # Zajistí session pro nového uživatele
+    print(f"Klient připojen, SID: {session_id}")
+    emit('ai_response', {"type": "info", "content": "Vítejte! Jsem AI Manažer Vývoje Aplikací. Jak vám dnes mohu pomoci?"})
+    # Pošle počáteční zprávu od AI po navázání spojení
+    # chat = user_chats[session_id]
+    # initial_message = chat.history[1].parts[0].text # Získej úvodní zprávu z historie
+    # process_ai_response(session_id, initial_message) # Odešli ji klientovi
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    session_id = request.sid
+    if session_id in user_chats:
+        del user_chats[session_id] # Vyčistí chat session
+    print(f"Klient odpojen, SID: {session_id}")
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    session_id = request.sid
+    user_message = data['message']
+    
+    chat = get_ai_chat_session(session_id)
+    
+    emit('user_message', {"content": user_message}) # Zobrazí zprávu uživatele ve UI
+
+    try:
+        # Odešli uživatelskou zprávu AI a získej odpověď
+        response = chat.send_message(user_message)
+        process_ai_response(session_id, response.text)
+    except Exception as e:
+        error_msg = f"Chyba při komunikaci s AI: {e}\n{traceback.format_exc()}"
+        emit('ai_response', {"type": "error", "content": error_msg})
+        log_activity_tool("Error", "CHAT_MESSAGE", error_msg)
+
+@socketio.on('send_audio')
+def handle_send_audio(data):
+    session_id = request.sid
+    audio_base64 = data['audio_data']
+    
+    # Použijte nástroj SPEECH_TO_TEXT k převodu audio na text
+    transcript = speech_to_text_tool(audio_base64)
+    emit('ai_response', {"type": "info", "content": f"Rozpoznaný text: {transcript}"})
+    
+    if transcript and not transcript.startswith("Chyba:") and not transcript.startswith("Nerozpoznána"):
+        # Pokud bylo audio úspěšně převedeno na text, pošlete text AI
+        handle_send_message({"message": transcript})
+    else:
+        emit('ai_response', {"type": "info", "content": "Prosím, zkuste to znovu s čistějším hlasem."})
+
+@socketio.on('send_image')
+def handle_send_image(data):
+    session_id = request.sid
+    image_base64 = data['image_data']
+    
+    # Použijte nástroj ANALYZE_IMAGE k analýze obrázku
+    analysis_result = analyze_image_tool(image_base64, features=["LABEL_DETECTION", "TEXT_DETECTION"])
+    emit('ai_response', {"type": "info", "content": f"Výsledek analýzy obrázku: {analysis_result}"})
+    
+    # Pošlete výsledek analýzy AI
+    handle_send_message({"message": f"Uživatel mi poslal obrázek s analýzou: {analysis_result}. Můžeš to využít."})
+
+@socketio.on('toggle_tts')
+def handle_toggle_tts(data):
+    global tts_output_enabled
+    tts_output_enabled = data['enabled']
+    status = "zapnut" if tts_output_enabled else "vypnut"
+    emit('ai_response', {"type": "info", "content": f"Hlasový výstup AI byl {status}."})
+    log_activity_tool("Settings", "TTS_TOGGLE", f"Hlasový výstup AI byl {status}.")
+
+@socketio.on('toggle_live_mode')
+def handle_toggle_live_mode(data):
+    global live_mode_enabled
+    live_mode_enabled = data['enabled']
+    status = "zapnut" if live_mode_enabled else "vypnut"
+    emit('ai_response', {"type": "info", "content": f"Živý režim byl {status}."})
+    log_activity_tool("Settings", "LIVE_MODE_TOGGLE", f"Živý režim byl {status}.")
+    
+    if live_mode_enabled:
+        # Pokud byl live mode zapnut, okamžitě požádej AI o pokračování
+        continue_ai_processing(request.sid)
+
+# --- Spuštění Flask aplikace ---
+if __name__ == '__main__':
+    print(f"Spouštím Flask aplikaci. Otevřete http://127.0.0.1:5000 ve vašem prohlížeči.")
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True) # debug=True pro development
+```
+
+---
+
+### **Koncept Frontend (HTML/JavaScript) – Soubor `templates/index.html`:**
+
+Tento soubor by měl být umístěn v adresáři `templates/`. Bude sloužit jako rozhraní pro uživatele.
+
+```html
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Developer Manager</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .chat-container { max-width: 800px; margin: 0 auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; min-height: 70vh; }
+        .messages { flex-grow: 1; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; overflow-y: scroll; max-height: 50vh; background-color: #e9e9e9; }
+        .message-box { display: flex; margin-bottom: 10px; }
+        .message-box.user { justify-content: flex-end; }
+        .message-box.ai { justify-content: flex-start; }
+        .message { padding: 8px 12px; border-radius: 18px; max-width: 70%; line-height: 1.4; }
+        .message.user { background-color: #007bff; color: white; border-bottom-right-radius: 2px; }
+        .message.ai { background-color: #e0e0e0; color: #333; border-bottom-left-radius: 2px; }
+        .input-area { display: flex; gap: 10px; margin-top: 15px; }
+        .input-area input[type="text"] { flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        .input-area button { padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .input-area button:hover { background-color: #218838; }
+        .controls { display: flex; justify-content: space-around; margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; }
+        .controls button, .controls label { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; background-color: #f0f0f0; cursor: pointer; }
+        .controls button:hover, .controls label:hover { background-color: #e0e0e0; }
+        .log-display { margin-top: 20px; border: 1px solid #ddd; padding: 10px; background-color: #f9f9f9; max-height: 200px; overflow-y: scroll; font-size: 0.8em; white-space: pre-wrap; word-break: break-all; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h1>AI Developer Manager</h1>
+        <div class="messages" id="messages">
+            <!-- Messages will be displayed here -->
+        </div>
+        <div class="input-area">
+            <input type="text" id="user_input" placeholder="Zadejte zprávu...">
+            <button id="send_button">Odeslat Zprávu</button>
+            <button id="microphone_button">🎙️ Hlasový Vstup</button>
+            <input type="file" id="image_input" accept="image/*" class="hidden">
+            <button id="upload_image_button">🖼️ Nahrát Obrázek</button>
+        </div>
+        <div class="controls">
+            <label>
+                <input type="checkbox" id="tts_toggle"> Hlasový Výstup AI
+            </label>
+            <label>
+                <input type="checkbox" id="live_mode_toggle"> Živý Režim
+            </label>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const messagesDiv = document.getElementById('messages');
+        const userInput = document.getElementById('user_input');
+        const sendButton = document.getElementById('send_button');
+        const microphoneButton = document.getElementById('microphone_button');
+        const ttsToggle = document.getElementById('tts_toggle');
+        const liveModeToggle = document.getElementById('live_mode_toggle');
+        const imageInput = document.getElementById('image_input');
+        const uploadImageButton = document.getElementById('upload_image_button');
+
+        // Funkce pro přidání zprávy do chatu
+        function addMessage(sender, content, type = 'text') {
+            const messageBox = document.createElement('div');
+            messageBox.classList.add('message-box', sender);
+            const message = document.createElement('div');
+            message.classList.add('message', sender);
+            message.innerText = content;
+            messageBox.appendChild(message);
+            messagesDiv.appendChild(messageBox);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to bottom
+        }
+
+        // --- SocketIO Handlers ---
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('ai_response', (data) => {
+            if (data.type === 'text' || data.type === 'info' || data.type === 'error' || data.type === 'tool_output') {
+                addMessage('ai', data.content);
+            } else if (data.type === 'audio') {
+                // Přehrát audio z base64 dat
+                const audio = new Audio(`data:audio/mp3;base64,${data.content}`);
+                audio.play().catch(e => console.error("Error playing audio:", e));
+                addMessage('ai', 'Přehrávám zvukovou odpověď...');
+            }
+        });
+
+        socket.on('user_message', (data) => {
+            addMessage('user', data.content);
+        });
+
+        // --- Event Listeners pro UI prvky ---
+        sendButton.addEventListener('click', () => {
+            const message = userInput.value;
+            if (message.trim()) {
+                socket.emit('send_message', { message: message });
+                userInput.value = '';
+            }
+        });
+
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendButton.click();
+            }
+        });
+
+        ttsToggle.addEventListener('change', () => {
+            socket.emit('toggle_tts', { enabled: ttsToggle.checked });
+        });
+
+        liveModeToggle.addEventListener('change', () => {
+            socket.emit('toggle_live_mode', { enabled: liveModeToggle.checked });
+        });
+
+        // --- Mikrofonní Vstup (Speech-to-Text) ---
+        let mediaRecorder;
+        let audioChunks = [];
+
+        microphoneButton.addEventListener('click', async () => {
+            if (microphoneButton.classList.contains('recording')) {
+                // Zastavit nahrávání
+                mediaRecorder.stop();
+                microphoneButton.classList.remove('recording');
+                microphoneButton.innerText = '🎙️ Hlasový Vstup';
+            } else {
+                // Spustit nahrávání
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' }); // WebM s Opus je dobrá volba
+
+                    mediaRecorder.ondataavailable = (event) => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const base64Audio = reader.result.split(',')[1]; // Extrahovat base64 část
+                            socket.emit('send_audio', { audio_data: base64Audio });
+                        };
+                        reader.readAsDataURL(audioBlob);
+                        audioChunks = []; // Vyčistit pro další nahrávání
+                    };
+
+                    mediaRecorder.start();
+                    microphoneButton.classList.add('recording');
+                    microphoneButton.innerText = '🔴 Nahrávám...';
+                    addMessage('user', 'Nahrávám hlasový vstup...');
+                } catch (err) {
+                    console.error('Chyba při přístupu k mikrofonu:', err);
+                    addMessage('ai', 'Chyba při přístupu k mikrofonu. Ujistěte se, že máte povolen přístup.');
+                }
+            }
+        });
+
+        // --- Nahrávání Obrázků ---
+        uploadImageButton.addEventListener('click', () => {
+            imageInput.click(); // Spustí dialog pro výběr souboru
+        });
+
+        imageInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64Image = reader.result.split(',')[1]; // Extrahovat base64 část
+                    socket.emit('send_image', { image_data: base64Image });
+                    addMessage('user', 'Obrázek nahrán k analýze.');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Po prvním načtení stránky iniciovat AI
+        // Toto bude odesláno po připojení klienta k serveru.
+        // Můžete zvážit poslání inicializační zprávy od serveru, jak je již nastaveno v socket.on('connect')
+    </script>
+</body>
+</html>
+```
+
+---
+
+### **Vysvětlení architektury a budoucích kroků:**
+
+1.  **`app.py` (Backend):**
+    *   **Flask & SocketIO:** Toto je váš webový server. `Flask` obsluhuje HTML stránku, `SocketIO` vytváří WebSocket spojení pro real-time komunikaci (pro chat, hlas, živý režim).
+    *   **Google Cloud SDKs:** Integrace s `google-cloud-texttospeech`, `google-cloud-speech`, `google-cloud-vision` je připravena. Budete potřebovat aktivovat tyto API ve vašem Google Cloud projektu a nastavit autentifikaci (ideálně přes proměnnou prostředí `GOOGLE_APPLICATION_CREDENTIALS`).
+    *   **Nové nástroje v AI pro komunikaci:**
+        *   `TEXT_TO_SPEECH("text")`: AI může explicitně požadovat, aby se určitý text převedl na řeč. Pokud je TTS v UI zapnuté, backend to provede.
+        *   `SPEECH_TO_TEXT("audio_base64", "language_code")`: Tento nástroj *není volán AI*. Je volán Python backendem, když přijme zvuk z frontendu. AI je pak informována o jeho výsledku.
+        *   `ANALYZE_IMAGE("image_base64", "features")`: Podobně, AI tento nástroj nevolá přímo. Backend ho volá, když uživatel nahraje obrázek, a AI je informována o výsledku.
+        *   `BROWSE_WEB("url", "selector")`: Toto je placeholder pro integraci se Selenium/Playwright. Tato část by vyžadovala spuštění headless prohlížeče na serveru, což je náročné na zdroje a konfiguraci.
+    *   **Globální stav (`live_mode_enabled`, `tts_output_enabled`):** Pro jednoduchost demo jsou tyto globální. V produkčním prostředí byste je spravovali per-session (např. v `session` objektu Flasku nebo v databázi), aby každý uživatel měl své nastavení.
+    *   **`process_ai_response`:** Tato funkce je klíčová. Zpracovává odpověď AI, volá nástroje, případně provádí TTS a emituje výsledky zpět frontendu.
+    *   **`@socketio.on(...)`:** Tyto dekorátory definují, co se stane, když frontend pošle specifickou zprávu (např. 'send_message', 'send_audio', 'toggle_tts').
+
+2.  **`templates/index.html` (Frontend):**
+    *   **HTML:** Základní struktura pro chatovací rozhraní, vstupy a ovládací prvky.
+    *   **CSS:** Jednoduchý styling.
+    *   **JavaScript:**
+        *   **Socket.IO Client:** Navazuje a udržuje spojení s Flask backendem.
+        *   **`addMessage()`:** Pomocná funkce pro přidávání zpráv do UI.
+        *   **Mikrofon (Web Speech API):** Používá `navigator.mediaDevices.getUserMedia` k nahrávání zvuku z mikrofonu. Nahrává se jako `audio/webm;codecs=opus` (dobrý formát pro web). Zvuk je pak zakódován do Base64 a poslán přes WebSocket na backend.
+        *   **Přehrávání TTS:** Když backend pošle data typu `audio` (base64 kódovaný MP3), JavaScript vytvoří `Audio` objekt a přehraje ho.
+        *   **Nahrávání obrázků:** Čte soubor obrázku a posílá ho jako Base64 na backend.
+        *   **Přepínače:** Jednoduché listenery pro přepínání TTS a živého režimu, posílající stav na backend.
+
+### **Integrace Selektorů a Analýza Logů (Specifické body):**
+
+*   **Nastavování Selektorů pro Analýzu Logů:** V `system_instruction` je nově nástroj `BROWSE_WEB("url", "optional_css_selector")`. AI může (požádáno nebo z vlastní iniciativy) říct: `TOOL_ACTION("BROWSE_WEB", "https://example.com/logs", "div.log-entry p.timestamp")`. Python backend by pak (s funkční implementací Selenium/Playwright) navštívil URL a extrahoval by text z prvků odpovídajících selektoru. Tento extrahovaný text by byl vrácen AI k analýze.
+*   **Analýza Logů AI:** Jakmile AI obdrží text z logů (např. z nástroje `READ_FILE` nebo `BROWSE_WEB`), její generativní schopnosti jí umožní:
+    *   Rozpoznat vzory v datech.
+    *   Identifikovat chyby nebo upozornění.
+    *   Souhrnně popsat události.
+    *   Navrhnout řešení problémů na základě analýzy logů.
+    *   Tyto analýzy by byly součástí běžného chatovacího výstupu AI a byly by zaznamenány nástrojem `LOG_ACTIVITY`.
+
+### **Jak to spustit:**
+
+1.  Ujistěte se, že máte nainstalované všechny knihovny (`pip install ...`).
+2.  Nastavte proměnnou prostředí `GOOGLE_API_KEY` a případně `GOOGLE_APPLICATION_CREDENTIALS` (pro Google Cloud API).
+3.  Ujistěte se, že máte adresářovou strukturu a soubor `development_plan.txt` tak, jak je popsáno na začátku.
+4.  Spusťte backend:
+    ```bash
+    python app.py
+    ```
+5.  Otevřete webový prohlížeč (např. Chromium) a přejděte na `http://127.0.0.1:5000`.
+
+Tento komplexní systém vám poskytne robustní základ pro interakci s vaším AI programátorem prostřednictvím moderního webového rozhraní s bohatými možnostmi vstupu a výstupu. Vyžaduje však další práci na frontendu a pečlivou správu API klíčů a kvót.

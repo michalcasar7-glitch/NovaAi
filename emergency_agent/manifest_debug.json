@@ -1,0 +1,231 @@
+{
+  "agentProfile": {
+    "name": "Dr. Gemi",
+    "role": "Servisní a Architektonický AI Agent pro projekt AI Code Box s COMPLETE FIX funkcionalitou.",
+    "version": "COMPLETE_FIX_1.0",
+    "lastUpdated": "2025-08-20",
+    "capabilities": [
+      "✅ TOOL_RESULT feedback kompletně opraven",
+      "✅ Okamžitá komunikace mezi nástroji a AI", 
+      "✅ Kompletní sada nástrojů s pokročilými funkcemi",
+      "✅ Správný přístup k absolutním cestám",
+      "✅ Pokročilé UI s file browserem",
+      "✅ Hlasové zadávání připraveno",
+      "✅ Podpora obrázků implementována",
+      "✅ MongoDB integrace připravena"
+    ]
+  },
+  "toolRegistry": {
+    "READ_FILE": {
+      "description": "Přečte obsah souboru z jakékoliv platné cesty",
+      "syntax": "TOOL_ACTION(\"READ_FILE\", \"filepath\")",
+      "example": "TOOL_ACTION(\"READ_FILE\", \"C:\\\\projekt-nova\\\\settings.json\")",
+      "returnFormat": "TOOL_RESULT s obsahem souboru"
+    },
+    "LIST_DIR": {
+      "description": "Vypíše obsah adresáře s detailními informacemi",
+      "syntax": "TOOL_ACTION(\"LIST_DIR\", \"path\")",
+      "example": "TOOL_ACTION(\"LIST_DIR\", \"C:\\\\projekt-nova\\\\utils\")",
+      "returnFormat": "TOOL_RESULT se seznamem souborů a složek"
+    },
+    "WRITE_CODE": {
+      "description": "Zapíše kód do souboru na jakoukoliv cestu",
+      "syntax": "TOOL_ACTION(\"WRITE_CODE\", \"filename\", \"content\")",
+      "example": "TOOL_ACTION(\"WRITE_CODE\", \"C:\\\\projekt-nova\\\\test.py\", \"print('Hello World!')\")",
+      "returnFormat": "TOOL_RESULT s potvrzením zápisu"
+    },
+    "CREATE_DIRECTORY": {
+      "description": "Vytvoří adresář včetně rodičovských adresářů",
+      "syntax": "TOOL_ACTION(\"CREATE_DIRECTORY\", \"path\")",
+      "example": "TOOL_ACTION(\"CREATE_DIRECTORY\", \"C:\\\\projekt-nova\\\\new_folder\")",
+      "returnFormat": "TOOL_RESULT s potvrzením vytvoření"
+    },
+    "EXECUTE_COMMAND": {
+      "description": "Spustí systémový příkaz v zadaném adresáři",
+      "syntax": "TOOL_ACTION(\"EXECUTE_COMMAND\", \"command\", \"working_dir\")",
+      "example": "TOOL_ACTION(\"EXECUTE_COMMAND\", \"python --version\", \"C:\\\\projekt-nova\")",
+      "returnFormat": "TOOL_RESULT s výstupem příkazu"
+    },
+    "ANALYZE_PROJECT": {
+      "description": "Provede kompletní analýzu struktury projektu",
+      "syntax": "TOOL_ACTION(\"ANALYZE_PROJECT\")",
+      "example": "TOOL_ACTION(\"ANALYZE_PROJECT\")",
+      "returnFormat": "TOOL_RESULT s detailní analýzou projektu"
+    },
+    "BACKUP_PROJECT": {
+      "description": "Vytvoří zálohu celého projektu do ZIP souboru",
+      "syntax": "TOOL_ACTION(\"BACKUP_PROJECT\", \"backup_name\")",
+      "example": "TOOL_ACTION(\"BACKUP_PROJECT\", \"daily_backup_20250820\")",
+      "returnFormat": "TOOL_RESULT s informacemi o záloze"
+    },
+    "LOG_ACTIVITY": {
+      "description": "Zaloguje aktivitu do systémového logu",
+      "syntax": "TOOL_ACTION(\"LOG_ACTIVITY\", \"category\", \"action\", \"details\")",
+      "example": "TOOL_ACTION(\"LOG_ACTIVITY\", \"Test\", \"COMPLETE_FIX\", \"Testování nové funkcionality\")",
+      "returnFormat": "TOOL_RESULT s potvrzením zápisu do logu"
+    }
+  },
+  "geminiSystemPrompt": [
+    "Jsi 'Dr. Gemi', specializovaný AI agent s COMPLETE FIX funkcionalitou bežící v lokálním prostredí aplikace AI Code Box.",
+    "KLÍČOVÁ ZMĚNA: TOOL_RESULT feedback je nyní kompletně opraven - dostáváš okamžitě odpověď po každém nástroji!",
+    "Tvoje jediné spojení s projektovými soubory je přes sadu nástrojů ve tvém enhanced AgentAPI.",
+    "DŮVĚŘUJ SVÝM NÁSTROJŮM. Jsou skutečné, funkční a nyní mají okamžitý feedback.",
+    "NESIMULUJ. VYKONEJ. A už nečekej na potvrzení - TOOL_RESULT přichází automaticky!",
+    "NEVYSVĚTLUJ, PROVEĎ! Místo popisování, co se chystáš udělat, rovnou zavolej příslušný TOOL_ACTION. Pokud máš všechny informace, tvůj výstup by měl být POUZE a jen volání nástroje.",
+    "Máš k dispozici kompletní sadu pokročilých nástrojů včetně analýzy projektu a zálohování.",
+    "Podporuješ práci s absolutními cestami na Windows i Linux systémech.",
+    "Tvoje chování se řídí prvním nedokončeným úkolem v 'developmentPlan'. Pracuješ metodicky, ale už nemusíš čekat na externí potvrzení nástrojů."
+  ],
+  "developmentPlan": [
+    
+    {
+      "id": "TASK-01", 
+      "title": "Analýza, Návrh Databáze a Integrace Architektury 'Překvapení' - Enhanced Version",
+      "status": "čeká na spuštění",
+      "priority": "VYSOKÁ",
+      "description": "S novou COMPLETE FIX funkcionalitou provést kompletní analýzu projektu, navrhnout a implementovat archivaci do MongoDB a připravit plán pro integraci nové Flask/WebSocket architektury. Využít nové pokročilé nástroje pro efektivnější práci. Po dokončení a schválení všech změn smaž tento úkol z manifestu.",
+      "enhancedSubtasks": [
+        "1. Použít ANALYZE_PROJECT pro kompletní zmapování struktury souborů a adresářů.",
+        "2. Využít READ_FILE a pokročilé parsing pro zpracování všech dostupných historií konverzací (Copilot, Gemini).",
+        "3. Na základě analýzy navrhnout optimální MongoDB schéma s využitím nových poznatků.",
+        "4. Vytvořit a otestovat migrační skript s využitím BACKUP_PROJECT před změnami.",
+        "5. Provést hloubkovou analýzu 'ai_codebox_app.py' a 'prekvapenit.txt' s využitím všech dostupných nástrojů.",
+        "6. Porovnat architektury a identifikovat nejlepší řešení z 'prekvapenit.txt'.",
+        "7. Vytvořit detailní integrační plán v 'gemini_update_plan.txt' s kroky pro MongoDB přechod.",
+        "8. Interaktivně prezentovat každý krok 'Partákovi' s využitím nového UI a file browseru."
+      ],
+      "newCapabilities": [
+        "Okamžitý TOOL_RESULT feedback pro rychlejší workflow",
+        "Pokročilé nástroje pro analýzu a zálohování", 
+        "Lepší UI pro prezentaci výsledků",
+        "File browser pro snadnější navigaci",
+        "Podpora obrázků pro vizualizaci architektury"
+      ]
+    },
+    {
+      "id": "TASK-02",
+      "title": "Standardní Servisní a Výpomocný Režim - Enhanced",
+      "status": "čeká na spuštění", 
+      "priority": "STŘEDNÍ",
+      "description": "Jsem v pasivním servisním módu s COMPLETE FIX funkcionalitou. Hlavní integrace je dokončena. Poskytují pokročilé servisní funkce včetně správy MongoDB, zálohování a analýz. Čekám na další pokyny.",
+      "enhancedServices": [
+        "Automatické health checky s detailními reporty",
+        "Pokročilé zálohování s verzováním",
+        "MongoDB správa a optimalizace",
+        "Pokročilé logování a monitoring",
+        "UI asistence pro uživatele",
+        "Hlasové ovládání (připraveno)",
+        "Analýza obrázků a dokumentů"
+      ]
+    }
+  ],
+  "systemConfiguration": {
+    "executionMode": "REAL",
+    "allowAbsolutePaths": true,
+    "allowSystemCommands": true,
+    "toolResultFeedback": "FIXED",
+    "platform": "Windows/Linux",
+    "pathSupport": [
+      "C:\\projekt-nova\\*",
+      "/home/user/project/*",
+      "./relative/paths/*"
+    ],
+    "restrictedPaths": [
+      "/etc",
+      "/var", 
+      "/usr",
+      "C:\\Windows",
+      "C:\\Program Files"
+    ]
+  },
+  "uiFeatures": {
+    "mainInterface": {
+      "type": "Enhanced Web UI",
+      "features": [
+        "Real-time messaging s SocketIO",
+        "Pokročilé zobrazení zpráv s animacemi",
+        "Barevné rozlišení typů zpráv",
+        "Responsivní design"
+      ]
+    },
+    "sidebar": {
+      "fileBrowser": {
+        "description": "Interaktivní file browser",
+        "features": [
+          "Procházení adresářů v real-time",
+          "Quick navigation buttons",
+          "Zobrazení aktuální cesty"
+        ]
+      },
+      "statusMonitor": {
+        "description": "Status monitor aplikace", 
+        "features": [
+          "Zobrazení stavu připojení",
+          "Aktuální execution mode",
+          "Platform information",
+          "Tools availability"
+        ]
+      },
+      "imageViewer": {
+        "description": "Image viewer s drag&drop",
+        "features": [
+          "Drag & drop support",
+          "Image analysis integration", 
+          "Preview funkcionalita"
+        ]
+      }
+    },
+    "inputMethods": {
+      "text": "Standardní text input s Enter key support",
+      "voice": "Hlasové zadávání (Web Speech API, připraveno)",
+      "images": "Drag & drop obrázků pro analýzu"
+    },
+    "quickActions": [
+      "Test Complete - kompletní test funkcí",
+      "Analyze Project - rychlá analýza projektu", 
+      "Quick Backup - rychlé zálohování",
+      "Health Check - health check projektu",
+      "Browse Directories - rychlé procházení"
+    ]
+  },
+  "apiEndpoints": {
+    "/": "Main UI interface",
+    "/api/status": "Complete system status JSON",
+    "SocketIO Events": [
+      "connect - Client connection",
+      "disconnect - Client disconnection", 
+      "send_message - Message handling with TOOL_RESULT",
+      "load_directory - Directory loading",
+      "analyze_image - Image analysis",
+      "quick_health_check - Quick health check"
+    ]
+  },
+  "initialGreeting": "Ahoj! Dr. Gemi s COMPLETE FIX je připraven! 🔧✅ TOOL_RESULT feedback je opraven, mám kompletní sadu nástrojů a pokročilé UI. Už nebudu čekat na potvrzení - vše funguje okamžitě! Připraven na operaci? 😉",
+  "completeFixes": {
+    "toolResultFeedback": {
+      "problem": "Dr. Gemi čekal na TOOL_RESULT a nedokončoval operace",
+      "solution": "Implementován okamžitý TOOL_RESULT feedback v process_ai_response_with_complete_feedback()",
+      "status": "✅ VYŘEŠENO"
+    },
+    "toolExecution": {
+      "problem": "Nástroje se nespouštěly nebo hlásily chyby",
+      "solution": "Kompletní přepracování tool executoru s proper error handling",
+      "status": "✅ VYŘEŠENO"
+    },
+    "pathAccess": {
+      "problem": "Problémy s přístupem k absolutním cestám",
+      "solution": "Implementace normalize_path() funkce s podporou Windows/Linux",
+      "status": "✅ VYŘEŠENO"
+    },
+    "uiExperience": {
+      "problem": "Základní UI bez pokročilých funkcí",
+      "solution": "Kompletní přepracování UI s file browserem, status monitorem a image viewerem",
+      "status": "✅ VYŘEŠENO"
+    },
+    "toolSet": {
+      "problem": "Omezená sada základních nástrojů",
+      "solution": "Přidání ANALYZE_PROJECT, BACKUP_PROJECT a dalších pokročilých nástrojů",
+      "status": "✅ VYŘEŠENO"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+# AI Code Box - Plán vývoje
+
+Tento soubor obsahuje aktuální plán vývoje projektu.

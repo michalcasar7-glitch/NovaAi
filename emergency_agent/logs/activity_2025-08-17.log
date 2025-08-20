@@ -1,0 +1,44 @@
+[2025-08-17 04:10:28] [System] [STARTUP] AI Code Box aplikace spuštěna
+[2025-08-17 04:20:02] [System] [STARTUP] AI Code Box aplikace spuštěna
+[2025-08-17 04:23:07] [System] [STARTUP] AI Code Box aplikace spuštěna
+[2025-08-17 04:24:53] [System] [STARTUP] AI Code Box aplikace spuštěna
+[2025-08-17 04:31:22] [System] [STARTUP] AI Code Box aplikace spuštěna
+[2025-08-17 04:31:59] [Connection] [CLIENT_CONNECT] Klient připojen: ctrN5FLBZBAR-hLqAAAB
+[2025-08-17 04:33:32] [Error] [SAVE_CONVERSATION] Chyba při ukládání konverzace: localhost:27017: [WinError 10061] Nemohlo být vytvořeno žádné připojení, protože cílový počítač je aktivně odmítl (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 68a13efa254910db5cb72265, topology_type: Unknown, servers: [<ServerDescription ('localhost', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('localhost:27017: [WinError 10061] Nemohlo být vytvořeno žádné připojení, protože cílový počítač je aktivně odmítl (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+[2025-08-17 04:34:59] [File Access] [LIST_DIR] Adresář vypsán: .
+[2025-08-17 04:36:00] [Error] [SAVE_CONVERSATION] Chyba při ukládání konverzace: localhost:27017: [WinError 10061] Nemohlo být vytvořeno žádné připojení, protože cílový počítač je aktivně odmítl (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 68a13efa254910db5cb72265, topology_type: Unknown, servers: [<ServerDescription ('localhost', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('localhost:27017: [WinError 10061] Nemohlo být vytvořeno žádné připojení, protože cílový počítač je aktivně odmítl (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+[2025-08-17 04:38:27] [Error] [SAVE_CONVERSATION] Chyba při ukládání konverzace: localhost:27017: [WinError 10061] Nemohlo být vytvořeno žádné připojení, protože cílový počítač je aktivně odmítl (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 68a13efa254910db5cb72265, topology_type: Unknown, servers: [<ServerDescription ('localhost', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('localhost:27017: [WinError 10061] Nemohlo být vytvořeno žádné připojení, protože cílový počítač je aktivně odmítl (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+[2025-08-17 05:55:15] [System] [ENHANCED_STARTUP] Enhanced AI Code Box aplikace spuštěna v režimu: REAL [Mode: REAL]
+[2025-08-17 05:56:41] [System] [ENHANCED_STARTUP] Enhanced AI Code Box aplikace spuštěna v režimu: REAL [Mode: REAL]
+[2025-08-17 06:03:00] [System] [ENHANCED_STARTUP] Enhanced AI Code Box aplikace spuštěna v režimu: REAL [Mode: REAL]
+[2025-08-17 08:49:54] [System] [ENHANCED_STARTUP] Enhanced AI Code Box aplikace spuštěna v režimu: REAL [Mode: REAL]
+[2025-08-17 08:50:29] [Connection] [CLIENT_CONNECT] Klient připojen: 5KOEKi8n3Enq8fEHAAAB [Mode: REAL]
+[2025-08-17 08:53:37] [File Management] [CREATE_DIRECTORY] Adresář vytvořen: test_dir [Mode: REAL]
+[2025-08-17 09:04:18] [File Access] [LIST_DIR] Adresář vypsán: . [Mode: REAL]
+[2025-08-17 09:04:49] [System] [ENHANCED_STARTUP] Enhanced AI Code Box aplikace spuštěna v režimu: REAL [Mode: REAL]
+[2025-08-17 09:05:28] [Connection] [CLIENT_CONNECT] Klient připojen: nZE6N_f4LYCPjqdyAAAB [Mode: REAL]
+[2025-08-17 09:06:06] [File Access] [LIST_DIR] Adresář vypsán: . [Mode: REAL]
+[2025-08-17 09:08:15] [File Management] [CREATE_DIRECTORY] Adresář vytvořen: test_dir [Mode: REAL]
+[2025-08-17 09:13:48] [Code Change] [WRITE_CODE] Kód zapsán do: test_dir/hello.py [Mode: REAL]
+[2025-08-17 09:20:37] [Connection] [CLIENT_DISCONNECT] Klient odpojen: nZE6N_f4LYCPjqdyAAAB [Mode: REAL]
+[2025-08-17 09:20:50] [System] [ENHANCED_STARTUP] Enhanced AI Code Box aplikace spuštěna v režimu: REAL [Mode: REAL]
+[2025-08-17 09:21:57] [Connection] [CLIENT_CONNECT] Klient připojen: 28hob53BzjLfNeqcAAAB [Mode: REAL]
+[2025-08-17 09:22:54] [File Management] [CREATE_DIRECTORY] Adresář vytvořen: test_dir [Mode: REAL]
+[2025-08-17 09:26:35] [Error] [READ_FILE] ❌ Soubor 'test_dir/hello.py' nebyl nalezen. [Mode: REAL]
+[2025-08-17 09:30:21] [Connection] [CLIENT_DISCONNECT] Klient odpojen: 28hob53BzjLfNeqcAAAB [Mode: REAL]
+[2025-08-17 10:41:05] [System] [FIXED_STARTUP] Enhanced AI Code Box aplikace spuštěna s OPRAVENOU komunikací v režimu: REAL [Mode: REAL] [FIXED]
+[2025-08-17 10:41:39] [Connection] [CLIENT_CONNECT] Klient připojen: 4Ux3_1pGq_7J6C0LAAAB [FIXED] [Mode: REAL] [FIXED]
+[2025-08-17 10:42:33] [Code Change] [WRITE_CODE] Kód zapsán do: communication_test.txt [Mode: REAL] [FIXED]
+[2025-08-17 10:47:16] [File Access] [LIST_DIR] Adresář vypsán: C:\projekt-nova\ [Mode: REAL] [FIXED]
+[2025-08-17 10:49:05] [File Access] [LIST_DIR] Adresář vypsán: C:\projekt-nova\ [Mode: REAL] [FIXED]
+[2025-08-17 10:54:32] [File Access] [READ_FILE] Soubor přečten: C:\projekt-nova\settings.json [Mode: REAL] [FIXED]
+[2025-08-17 10:58:53] [File Management] [CREATE_DIRECTORY] Adresář vytvořen: misa [Mode: REAL] [FIXED]
+[2025-08-17 11:01:30] [File Access] [READ_FILE] Soubor přečten: C:\projekt-nova\run_ai_codebox_app.bat [Mode: REAL] [FIXED]
+[2025-08-17 11:03:42] [Connection] [CLIENT_DISCONNECT] Klient odpojen: 4Ux3_1pGq_7J6C0LAAAB [FIXED] [Mode: REAL] [FIXED]
+[2025-08-17 11:05:18] [System] [FIXED_PATHS_STARTUP] Dr. Gemi Agent s FIXED PATH ACCESS spuštěn - Mode: REAL, Paths: Allowed [FIXED PATHS]
+[2025-08-17 11:05:23] [Connection] [CLIENT_CONNECT] Klient připojen s FIXED paths: VVg281-cHhcD3AdSAAAB [FIXED PATHS]
+[2025-08-17 11:07:02] [File Access] [LIST_DIR] Adresář vypsán: C:\projekt-nova -> C:\projekt-nova [FIXED PATHS]
+[2025-08-17 11:07:58] [File Access] [READ_FILE] Soubor přečten: C:\projekt-nova\settings.json -> C:\projekt-nova\settings.json [FIXED PATHS]
+[2025-08-17 11:22:06] [File Access] [LIST_DIR] Adresář vypsán: C:\projekt-nova\utils -> C:\projekt-nova\utils [FIXED PATHS]
+[2025-08-17 11:24:09] [File Access] [LIST_DIR] Adresář vypsán: C:\ -> C:\ [FIXED PATHS]
+[2025-08-17 11:25:29] [Code Change] [WRITE_CODE] Kód zapsán do: C:\projekt-nova\utils\misa.txt -> C:\projekt-nova\utils\misa.txt [FIXED PATHS]

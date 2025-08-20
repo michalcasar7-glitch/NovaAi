@@ -1,0 +1,41 @@
+import subprocess
+import os
+
+def execute(app_api, params):
+    """
+    Spustí předdefinovanou zkratku na základě jména.
+    """
+    shortcut_name = params.get("shortcut_name")
+    if not shortcut_name:
+        return "Chyba: Nebyl specifikován název zkratky."
+
+    # --- Zde je databáze vašich osobních příkazů ---
+    shortcuts = {
+        "spotify": {
+            "type": "weblink",
+            "path": "https://open.spotify.com/playlist/5x8ypk2zuKsXMZL7JnkNCF"
+        },
+        # Zde můžete v budoucnu přidat další, např.:
+        # "steam": {
+        #     "type": "executable",
+        #     "path": "C:\\Program Files (x86)\\Steam\\Steam.exe"
+        # }
+    }
+    # ----------------------------------------------------
+
+    shortcut_to_run = shortcuts.get(shortcut_name)
+
+    if not shortcut_to_run:
+        return f"Chyba: Zkratka s názvem '{shortcut_name}' neexistuje."
+
+    try:
+        if shortcut_to_run["type"] == "weblink":
+            # Použijeme systémový prohlížeč k otevření odkazu
+            os.startfile(shortcut_to_run["path"])
+            return f"Spouštím odkaz '{shortcut_name}'..."
+        elif shortcut_to_run["type"] == "executable":
+            subprocess.Popen([shortcut_to_run["path"]])
+            return f"Spouštím aplikaci '{shortcut_name}'..."
+        
+    except Exception as e:
+        return f"Chyba při spouštění zkratky '{shortcut_name}': {e}"

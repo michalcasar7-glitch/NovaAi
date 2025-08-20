@@ -1,0 +1,11 @@
+
+--- Real Code Change: test_dir/hello.py at 2025-08-17 09:13:48 [Mode: REAL] ---
+--- a/test_dir/hello.py+++ b/test_dir/hello.py@@ -0,0 +1 @@+print('Hello from Dr. Gemi!')-------------------------------------------
+
+--- Real Code Change: communication_test.txt at 2025-08-17 10:42:33 [Mode: REAL] [FIXED] ---
+--- a/communication_test.txt+++ b/communication_test.txt@@ -0,0 +1,3 @@+Toto je test komunikace
++Gemini dostane PLNÝ výsledek
++A bude moci na něj reagovat-------------------------------------------
+
+--- FIXED PATHS Code Change: C:\projekt-nova\utils\misa.txt at 2025-08-17 11:25:29 ---
+--- a/C:\projekt-nova\utils\misa.txt+++ b/C:\projekt-nova\utils\misa.txt@@ -0,0 +1 @@+C:\-------------------------------------------

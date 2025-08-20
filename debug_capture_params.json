@@ -1,0 +1,14 @@
+{
+  "receiveParams": {
+    "enabled": true,
+    "lastUpdated": "2025-08-06T20:30:00Z",
+    "messageContainerSelector": "div.placeholder",
+    "messageContentSelector": "p.placeholder"
+  },
+  "sendParams": {
+    "enabled": false,
+    "lastUpdated": null,
+    "inputFieldSelector": "textarea#placeholder",
+    "sendButtonSelector": "button#placeholder"
+  }
+}

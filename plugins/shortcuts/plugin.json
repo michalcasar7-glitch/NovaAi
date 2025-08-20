@@ -1,0 +1,5 @@
+{
+  "command": "run_shortcut",
+  "description": "Spustí předdefinovanou lokální zkratku nebo příkaz na počítači uživatele.",
+  "prompt": "Tento příkaz se typicky používá pro uživatelské zkratky, jako je spuštění hudby nebo specifické aplikace."
+}

@@ -1,0 +1,5 @@
+{
+  "command": "ping",
+  "description": "Jednoduchý testovací plugin, který ověří funkčnost pluginového systému a vrátí 'pong'.",
+  "prompt": "Pokud uživatel chce otestovat systém nebo poslat 'ping', použij tento příkaz. {\"command\": \"ping\"}"
+}

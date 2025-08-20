@@ -1,0 +1,127 @@
+[
+  {
+    "agent_id": "copilot_ai",
+    "name": "Copilot",
+    "comm_type": "custom_adapter",
+    "relay_code": "ADP-CPLT",
+    "status": "active",
+    "description": "Conversational AI assistant powered by large-scale language models."
+  },
+  {
+    "agent_id": "alpha123",
+    "name": "StrategyBot",
+    "comm_type": "postMessage",
+    "relay_code": "PM-STR",
+    "status": "active",
+    "description": "AI focused on strategic decision-making with JSON I/O."
+  },
+  {
+    "agent_id": "beta456",
+    "name": "VisionAI",
+    "comm_type": "WebSocket",
+    "relay_code": "WS-VSN",
+    "status": "pending",
+    "description": "Visual reasoning bot communicating via websockets."
+  },
+  {
+    "agent_id": "gamma789",
+    "name": "Gemini",
+    "comm_type": "custom_adapter",
+    "relay_code": "ADP-GEM",
+    "status": "expected",
+    "description": "Advanced conversational agent integrating custom relay."
+  },
+  {
+    "agent_id": "A3",
+    "name": "Claude Relay",
+    "comm_type": "relay_system",
+    "relay_code": "RLY-CLD",
+    "status": "active",
+    "description": "Relay communication system for message passthrough between chatbox and agents.",
+    "relay_config": {
+      "startup_protocol": {
+        "auto_launch_window": true,
+        "window_title": "A3 Relay Communication Hub",
+        "initial_handshake": true,
+        "message_id_counter": 0
+      },
+      "architecture": {
+        "type": "message_passthrough",
+        "direction_handling": {
+          "incoming": {
+            "source": "web_agents",
+            "destination": "chatbox",
+            "id_assignment": "auto_increment",
+            "id_start": 0
+          },
+          "outgoing": {
+            "source": "chatbox", 
+            "destination": "web_agents",
+            "id_assignment": "none",
+            "processing": "direct_forward"
+          }
+        },
+        "queue_system": {
+          "inbox": "thread_safe_queue",
+          "outbox": "thread_safe_queue",
+          "monitoring": "continuous_polling"
+        }
+      },
+      "response_system": {
+        "message_format": {
+          "required_fields": ["agent_id", "content", "direction", "timestamp"],
+          "optional_fields": ["id", "metadata"],
+          "encoding": "utf-8"
+        },
+        "handlers": {
+          "receive_from_web": {
+            "method": "receive_from_web(content)",
+            "returns": "message_id",
+            "action": "add_to_chatbox_queue"
+          },
+          "send_to_web": {
+            "method": "send_to_web(content)",
+            "returns": "void",
+            "action": "forward_to_agent"
+          },
+          "get_next_to_chatbox": {
+            "method": "get_next_to_chatbox()",
+            "returns": "SimpleMessage",
+            "action": "pop_from_inbox"
+          },
+          "get_next_from_chatbox": {
+            "method": "get_next_from_chatbox()",
+            "returns": "SimpleMessage", 
+            "action": "pop_from_outbox"
+          }
+        },
+        "error_handling": {
+          "connection_lost": "retry_with_backoff",
+          "invalid_message": "log_and_discard",
+          "queue_overflow": "oldest_first_removal"
+        }
+      },
+      "integration_hooks": {
+        "chatbox_interface": {
+          "message_handler": "_handle_relay_message(direction, message)",
+          "team_chat_integration": "_add_to_team_chat(agent_id, content, msg_id)",
+          "status_updates": "real_time_via_callback"
+        },
+        "webview_bridge": {
+          "js_api_method": "sendToChatbox(message)",
+          "bridge_injection": "auto_on_window_load",
+          "capture_setup": "agent_specific_customization"
+        }
+      },
+      "monitoring": {
+        "heartbeat_interval": 5000,
+        "status_tracking": true,
+        "message_logging": {
+          "incoming_log": "relay_incoming.log",
+          "outgoing_log": "relay_outgoing.log",
+          "error_log": "relay_errors.log"
+        }
+      }
+    }
+  }
+]
