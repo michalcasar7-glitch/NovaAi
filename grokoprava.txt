@@ -1,0 +1,859 @@
+﻿# -*- coding: utf-8 -*-
+import tkinter as tk
+from tkinter import ttk, scrolledtext, messagebox, simpledialog
+import os, sys, json, subprocess, threading, shutil, difflib, re, importlib.util
+from datetime import datetime
+import socket
+from PIL import Image, ImageTk, ImageGrab
+from dotenv import load_dotenv
+import google.generativeai as genai
+import requests
+from bs4 import BeautifulSoup
+import pymongo  # Pro MongoDB historii
+import pyautogui  # Virtuální myš/klávesnice
+import cv2  # Pro stream screenshotů
+import websocket  # Pro komunikaci s Java
+from google.cloud import texttospeech as tts  # TTS
+from google.cloud import speech as stt  # STT
+
+# Knihovny pro pokročilé funkce
+try:
+    import psutil
+except ImportError:
+    psutil = None
+try:
+    import mss
+except ImportError:
+    mss = None
+
+load_dotenv()
+
+# --- Globální konstanty ---
+BG_COLOR = '#1e1e1e'
+PANEL_BG = '#2d2d2d'
+ACCENT_COLOR = '#00ffff'
+FONT_FAMILY = "Consolas"
+SETTINGS_FILE = 'settings.json'
+MEMORY_DIR = 'memory'
+HISTORY_FILE = os.path.join(MEMORY_DIR, 'box_history.json')  # Záloha, ale primárně MongoDB
+MONGO_URI = "mongodb://localhost:27017/"  # Nahraďte svým URI
+DB_NAME = "codebox_db"
+CHAT_COLLECTION = "chat_history"
+PAMET_COLLECTION = "gemini_pamet"  # Pro paměť Gemini
+JAVA_JAR_PATH = "dispecink.jar"  # Cesta k Java JAR
+
+# Ikony (předpokládejte PNG soubory v adresáři 'icons')
+MIC_ICON_PATH = 'icons/mic.png'
+SPEAKER_ICON_PATH = 'icons/speaker.png'
+
+# Inicializace MongoDB
+mongo_client = pymongo.MongoClient(MONGO_URI)
+db = mongo_client[DB_NAME]
+chat_col = db[CHAT_COLLECTION]
+pamet_col = db[PAMET_COLLECTION]
+
+# Inicializace TTS/STT
+tts_client = tts.TextToSpeechClient()
+stt_client = stt.SpeechClient()
+
+# Inicializace Gemini (zachováno flash)
+genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+code_model = genai.GenerativeModel('gemini-2.5-flash')
+
+# Systémový prompt s pamětí
+system_prompt = """
+Jsi 'Gemi-Boss'... (původní prompt) + Pracuj s pamětí: Načti paměť z MongoDB, kombinuj s manifestem.
+Dostupné příkazy rozšířeny o Java: {"command": "java_call", "method": "<java_method>", "args": "<args>"} 
+Pro virtuální myš/klávesnice: {"command": "simulate_input", "type": "mouse/keyboard", "action": "<action>"} 
+Pro stream screenshot: {"command": "stream_screenshot", "mode": "window/full", "duration": <sec>}
+Pro TTS: {"command": "tts", "text": "<text>"}
+Pro STT: {"command": "stt", "audio_path": "<path>"} 
+"""
+
+# --- Rozšířené třídy ---
+# (Zachovat původní třídy SimpleMessage, BridgeClient nahrazen WsClient pro Java)
+
+class SimpleMessage:
+    def __init__(self, agent_id, content, direction, msg_type="chat", msg_id=None, metadata=None):
+        self.agent_id, self.content, self.direction = agent_id, content, direction
+        self.timestamp, self.msg_id = datetime.now().isoformat(), msg_id
+        self.metadata = metadata or {}
+        self.metadata['type'] = msg_type
+    def to_json(self): return json.dumps(self.__dict__, ensure_ascii=False)
+    @classmethod
+    def from_json(cls, json_str):
+        data = json.loads(json_str)
+        instance = cls(data.get('agent_id'), data.get('content'), data.get('direction'))
+        instance.__dict__.update(data)
+        return instance
+
+class WsClient:
+    def __init__(self, url="ws://localhost:8080/ws-chat"):
+        self.ws = None
+        self.url = url
+        self.connected = False
+        self.callbacks = []
+
+    def connect(self):
+        def on_open(ws):
+            self.connected = True
+        def on_message(ws, message):
+            for callback in self.callbacks:
+                callback(json.loads(message))
+        def on_error(ws, error):
+            print(f"WS Error: {error}")
+        def on_close(ws):
+            self.connected = False
+
+        self.ws = websocket.WebSocketApp(self.url, on_open=on_open, on_message=on_message, on_error=on_error, on_close=on_close)
+        threading.Thread(target=self.ws.run_forever).start()
+
+    def send_message(self, msg):
+        if self.connected:
+            self.ws.send(json.dumps(msg))
+
+    def add_callback(self, callback):
+        self.callbacks.append(callback)
+
+class TextLineNumbers(tk.Canvas):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.textwidget = None
+    def attach(self, text_widget):
+        self.textwidget = text_widget
+        self.redraw()
+    def redraw(self, *args):
+        self.delete("all")
+        if not self.textwidget: return
+        try:
+            i = self.textwidget.index("@0,0")
+            while True:
+                dline = self.textwidget.dlineinfo(i)
+                if dline is None: break
+                y = dline[1]
+                linenum = str(i).split(".")[0]
+                self.create_text(2, y, anchor="nw", text=linenum, fill="#6c757d")
+                i = self.textwidget.index(f"{i}+1line")
+        except:
+            pass
+
+class CustomText(tk.Text):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._orig = self._w + "_orig"
+        self.tk.call("rename", self._w, self._orig)
+        self.tk.createcommand(self._w, self._proxy)
+    def _proxy(self, *args):
+        try:
+            cmd = (self._orig,) + args
+            result = self.tk.call(cmd)
+            if (args[0] in ("insert", "delete", "replace") or 
+                args[0:3] == ("mark", "set", "insert") or 
+                args[0:2] == ("xview", "scroll") or 
+                args[0:2] == ("yview", "scroll")):
+                self.event_generate("<<Change>>", when="tail")
+            return result
+        except:
+            return None
+
+class FilesPanel:
+    def __init__(self, parent_app, parent_frame, callback=None):
+        self.app = parent_app
+        self.callback = callback
+        self.current_dir = os.getcwd()
+        self.frame = ttk.Frame(parent_frame)
+        
+        toolbar = ttk.Frame(self.frame)
+        toolbar.pack(fill="x", padx=5, pady=2)
+        
+        buttons = {"🏠": "Domů", "↑": "Nahoru", "🔄": "Obnovit", "➕📁": "Nová složka", 
+                  "➕📄": "Nový soubor", "✂️": "Kopírovat", "❌": "Smazat"}
+        commands = [self.go_home, self.go_up, self.refresh, self.new_folder, 
+                   self.new_file, self.copy_item, self.delete_item]
+        
+        for (icon, tooltip), command in zip(buttons.items(), commands):
+            btn = ttk.Button(toolbar, text=icon, command=command, width=3)
+            btn.pack(side="left")
+            self.create_tooltip(btn, tooltip)
+            
+        self.paste_button = ttk.Button(toolbar, text="📋", command=self.paste_item, width=3, state="disabled")
+        self.paste_button.pack(side="left")
+        self.create_tooltip(self.paste_button, "Vložit")
+        
+        self.dir_label = ttk.Label(self.frame, text=self.current_dir, foreground=ACCENT_COLOR)
+        self.dir_label.pack(fill="x", padx=5, pady=(0,5))
+        
+        tree_frame = ttk.Frame(self.frame)
+        tree_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        self.tree = ttk.Treeview(tree_frame, columns=("modified", "size"), height=15)
+        self.tree.pack(side="left", fill="both", expand=True)
+        
+        self.tree.heading("#0", text="Název")
+        self.tree.heading("modified", text="Datum změny")
+        self.tree.heading("size", text="Velikost")
+        
+        self.tree.column("#0", stretch=tk.YES, minwidth=150)
+        self.tree.column("modified", width=120, anchor='center')
+        self.tree.column("size", width=80, anchor='e')
+        
+        self.tree.tag_configure('folder', foreground='#77b3d1')
+        self.tree.tag_configure('code', foreground='#c586c0')
+        self.tree.tag_configure('image', foreground='#d1a077')
+        self.tree.tag_configure('system', font=(FONT_FAMILY, 10, 'bold'))
+        
+        sb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        
+        self.tree.bind("<Double-Button-1>", self.on_double_click)
+        self.tree.bind("<Button-3>", self.show_context_menu)
+        self.tree.bind("<F2>", self.rename_item_event)
+        self.refresh()
+        
+    def create_tooltip(self, widget, text):
+        tooltip = Tooltip(widget, text)
+        widget.bind("<Enter>", lambda e: tooltip.showtip())
+        widget.bind("<Leave>", lambda e: tooltip.hidetip())
+        
+    def show_context_menu(self, event):
+        try:
+            item_id = self.tree.identify_row(event.y)
+            if not item_id: return
+            self.tree.selection_set(item_id)
+            
+            menu = tk.Menu(self.frame, tearoff=0, bg=PANEL_BG, fg=ACCENT_COLOR)
+            menu.add_command(label="Otevřít", command=lambda: self.on_double_click(None))
+            menu.add_command(label="Přejmenovat (F2)", command=self.rename_item)
+            menu.add_command(label="Zálohuj a Edituj", command=self.backup_and_edit)
+            menu.add_separator()
+            menu.add_command(label="📎 Kopírovat cestu", command=self.copy_path)
+            menu.add_command(label="📄 Kopírovat obsah", command=self.copy_content)
+            menu.add_separator()
+            
+            new_file_menu = tk.Menu(menu, tearoff=0, bg=PANEL_BG, fg=ACCENT_COLOR)
+            new_file_menu.add_command(label="Python soubor (.py)", command=lambda: self.new_file(ext=".py"))
+            new_file_menu.add_command(label="Textový soubor (.txt)", command=lambda: self.new_file(ext=".txt"))
+            new_file_menu.add_command(label="JSON soubor (.json", command=lambda: self.new_file(ext=".json"))
+            menu.add_cascade(label="Nový soubor", menu=new_file_menu)
+            menu.add_separator()
+            menu.add_command(label="❌ Smazat", command=self.delete_item)
+            
+            menu.post(event.x_root, event.y_root)
+        except Exception as e:
+            print(f"Chyba context menu: {e}")
+            
+    def backup_and_edit(self):
+        try:
+            selected_item = self.tree.selection()
+            if not selected_item: return
+            
+            item_text = self.tree.item(selected_item[0])['text'].strip().split(' ', 2)[-1]
+            item_path = os.path.join(self.current_dir, item_text)
+            
+            if os.path.isfile(item_path):
+                shutil.copyfile(item_path, item_path + '.bak')
+                self.app._update_status_banner(f"Vytvořena záloha: {os.path.basename(item_path)}.bak")
+                if self.callback:
+                    self.callback(item_path)
+        except Exception as e:
+            self.app._update_status_banner(f"❌ Chyba při zálohování: {e}")
+            
+    def rename_item_event(self, event): 
+        self.rename_item()
+        
+    def rename_item(self):
+        try:
+            selected_item = self.tree.selection()
+            if not selected_item: return
+            
+            item_text = self.tree.item(selected_item[0])['text'].strip().split(' ', 2)[-1]
+            item_path = os.path.join(self.current_dir, item_text)
+            old_name = os.path.basename(item_path)
+            
+            new_name = simpledialog.askstring("Přejmenovat", f"Nový název pro '{old_name}':", initialvalue=old_name)
+            if new_name and new_name != old_name:
+                new_path = os.path.join(os.path.dirname(item_path), new_name)
+                os.rename(item_path, new_path)
+                self.app._update_status_banner(f"✅ Přejmenováno na '{new_name}'")
+                self.refresh()
+        except Exception as e:
+            self.app._update_status_banner(f"❌ Chyba při přejmenování: {e}")
+            
+    def copy_path(self):
+        try:
+            selected_item = self.tree.selection()
+            if not selected_item: return
+            
+            item_text = self.tree.item(selected_item[0])['text'].strip().split(' ', 2)[-1]
+            item_path = os.path.join(self.current_dir, item_text)
+            
+            self.app.root.clipboard_clear()
+            self.app.root.clipboard_append(item_path)
+            self.app._update_status_banner(f"📋 Cesta zkopírována do schránky.")
+        except Exception as e:
+            self.app._update_status_banner(f"❌ Chyba při kopírování cesty: {e}")
+            
+    def copy_content(self):
+        try:
+            selected_item = self.tree.selection()
+            if not selected_item: return
+            
+            item_text = self.tree.item(selected_item[0])['text'].strip().split(' ', 2)[-1]
+            item_path = os.path.join(self.current_dir, item_text)
+            
+            if os.path.isfile(item_path):
+                with open(item_path, 'r', encoding='utf-8', errors='ignore') as f: 
+                    content = f.read()
+                self.app.root.clipboard_clear()
+                self.app.root.clipboard_append(content)
+                self.app._update_status_banner(f"📋 Obsah souboru zkopírován.")
+            else:
+                self.app._update_status_banner(f"Nelze kopírovat obsah složky.")
+        except Exception as e:
+            self.app._update_status_banner(f"❌ Chyba při čtení souboru: {e}")
+            
+    def go_home(self):
+        try:
+            project_root = os.path.dirname(os.path.abspath(sys.argv[0]))
+            self.refresh(project_root)
+            main_script_path = os.path.join(project_root, 'ai_codebox_app.py')
+            if os.path.exists(main_script_path) and self.callback: 
+                self.callback(main_script_path)
+        except Exception as e:
+            self.app._update_status_banner(f"❌ Chyba při přechodu domů: {e}")
+            
+    def go_up(self):
+        parent_dir = os.path.dirname(self.current_dir)
+        if parent_dir != self.current_dir:
+            self.refresh(parent_dir)
+            
+    def refresh(self, path=None):
+        if path:
+            self.current_dir = path
+            self.dir_label.config(text=self.current_dir)
+        
+        self.tree.delete(*self.tree.get_children())
+        
+        try:
+            for item in os.listdir(self.current_dir):
+                full_path = os.path.join(self.current_dir, item)
+                modified = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime("%Y-%m-%d %H:%M")
+                size = ""
+                tag = ''
+                
+                if os.path.isdir(full_path):
+                    tag = 'folder'
+                    size = '<dir>'
+                else:
+                    size = f"{os.path.getsize(full_path) / 1024:.1f} KB"
+                    ext = os.path.splitext(item)[1].lower()
+                    if ext in ('.py', '.js', '.java', '.cpp', '.html', '.css'):
+                        tag = 'code'
+                    elif ext in ('.png', '.jpg', '.gif'):
+                        tag = 'image'
+                
+                self.tree.insert("", "end", text=item, values=(modified, size), tags=(tag,))
+        except Exception as e:
+            self.app._update_status_banner(f"❌ Chyba při obnově: {e}")
+            
+    def on_double_click(self, event):
+        selected_item = self.tree.selection()
+        if not selected_item: return
+        
+        item_text = self.tree.item(selected_item[0])['text']
+        item_path = os.path.join(self.current_dir, item_text)
+        
+        if os.path.isdir(item_path):
+            self.refresh(item_path)
+        else:
+            if self.callback:
+                self.callback(item_path)
+                
+    def new_folder(self):
+        name = simpledialog.askstring("Nová složka", "Název nové složky:")
+        if name:
+            new_path = os.path.join(self.current_dir, name)
+            os.makedirs(new_path, exist_ok=True)
+            self.refresh()
+            
+    def new_file(self, ext=""):
+        name = simpledialog.askstring("Nový soubor", f"Název nového souboru{ext}:")
+        if name:
+            if not name.endswith(ext): name += ext
+            new_path = os.path.join(self.current_dir, name)
+            open(new_path, 'w').close()
+            self.refresh()
+            if self.callback:
+                self.callback(new_path)
+            
+    def copy_item(self):
+        selected_item = self.tree.selection()
+        if not selected_item: return
+        
+        item_text = self.tree.item(selected_item[0])['text'].strip().split(' ', 2)[-1]
+        self.copied_path = os.path.join(self.current_dir, item_text)
+        self.paste_button.config(state="normal")
+        self.app._update_status_banner(f"📋 Položka '{item_text}' připravena ke kopírování.")
+        
+    def paste_item(self):
+        if not hasattr(self, 'copied_path') or not self.copied_path: return
+        
+        dest_path = os.path.join(self.current_dir, os.path.basename(self.copied_path))
+        
+        if os.path.exists(dest_path):
+            if not messagebox.askyesno("Přepsat?", f"Soubor '{os.path.basename(dest_path)}' již existuje. Přepsat?"):
+                return
+        
+        if os.path.isdir(self.copied_path):
+            shutil.copytree(self.copied_path, dest_path)
+        else:
+            shutil.copyfile(self.copied_path, dest_path)
+        
+        self.refresh()
+        self.app._update_status_banner(f"✅ Položka vložena.")
+        
+    def delete_item(self):
+        selected_item = self.tree.selection()
+        if not selected_item: return
+        
+        item_text = self.tree.item(selected_item[0])['text'].strip().split(' ', 2)[-1]
+        item_path = os.path.join(self.current_dir, item_text)
+        
+        if messagebox.askyesno("Smazat?", f"Opravdu smazat '{item_text}'?"):
+            if os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+            else:
+                os.remove(item_path)
+            self.refresh()
+            self.app._update_status_banner(f"❌ Položka smazána.")
+
+class Tooltip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tipwindow = None
+
+    def showtip(self):
+        x, y, _, _ = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                         background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                         font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hidetip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
+class AiCodeBoxApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("AI Code Box")
+        self.root.configure(bg=BG_COLOR)
+        self.root.geometry("1200x800")
+
+        self.java_process = None  # Subprocess pro Java
+        self.multichat_active = False  # Stav Multichatu
+        self.ws_client = WsClient()  # WebSocket pro Java
+        self.ws_client.add_callback(self.handle_ws_message)
+        self.live_mode_enabled = tk.BooleanVar(value=False)
+        self.recording = False  # Pro STT
+
+        # Inicializace UI komponent z původního kódu
+        style = ttk.Style()
+        style.configure('TButton', font=(FONT_FAMILY, 10), background=PANEL_BG, foreground=ACCENT_COLOR)
+        style.configure('Panel.TFrame', background=PANEL_BG)
+        style.configure('Status.TLabel', foreground='yellow', background=BG_COLOR, font=(FONT_FAMILY, 9, 'italic'))
+
+        # Status banner
+        self.status_banner = ttk.Label(self.root, text="", style='Status.TLabel')
+        self.status_banner.pack(fill="x", padx=5, pady=2)
+
+        # Hlavní panel
+        main_panels = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        main_panels.pack(fill="both", expand=True)
+
+        # Levý panel: Files + Viewer
+        left_panel = ttk.Frame(main_panels, style='Panel.TFrame')
+        main_panels.add(left_panel, weight=1)
+
+        files_label = ttk.Label(left_panel, text="📁 File Manager", foreground=ACCENT_COLOR)
+        files_label.pack(pady=5)
+
+        self.files_panel = FilesPanel(self, left_panel, callback=self.open_file_in_viewer)
+
+        viewer_label = ttk.Label(left_panel, text="📄 Viewer", foreground=ACCENT_COLOR)
+        viewer_label.pack(pady=5)
+
+        self.viewer_content_frame = ttk.Frame(left_panel)
+        self.viewer_content_frame.pack(fill="both", expand=True)
+
+        self.current_file_label = ttk.Label(self.viewer_content_frame, text="", foreground=ACCENT_COLOR)
+        self.current_file_label.pack(fill="x")
+
+        self.linenumbers = TextLineNumbers(self.viewer_content_frame, width=30, bg=PANEL_BG)
+        self.linenumbers.pack(side="left", fill="y")
+
+        self.file_text = CustomText(self.viewer_content_frame, bg=BG_COLOR, fg=ACCENT_COLOR, font=(FONT_FAMILY, 10))
+        self.file_text.pack(side="left", fill="both", expand=True)
+        self.linenumbers.attach(self.file_text)
+        self.file_text.bind("<<Change>>", self.linenumbers.redraw)
+        self.file_text.bind("<Configure>", self.linenumbers.redraw)
+
+        self.file_text.tag_configure("diff_added", foreground="#00ff00")
+        self.file_text.tag_configure("diff_deleted", foreground="#ff0000")
+        self.file_text.tag_configure("diff_prefix", foreground="#ffff00")
+
+        self.image_label = tk.Label(self.viewer_content_frame, bg=BG_COLOR)
+        self.viewer_diff_mode = False
+
+        # Pravý panel: API + Chat + Team
+        right_panel = ttk.Notebook(main_panels)
+        main_panels.add(right_panel, weight=2)
+
+        self.api_view = scrolledtext.ScrolledText(right_panel, bg=BG_COLOR, fg=ACCENT_COLOR, font=(FONT_FAMILY, 10))
+        right_panel.add(self.api_view, text="🧠 API View")
+
+        self.chat_view = scrolledtext.ScrolledText(right_panel, bg=BG_COLOR, fg=ACCENT_COLOR, font=(FONT_FAMILY, 10))
+        right_panel.add(self.chat_view, text="💬 Chat View")
+
+        self.team_view = scrolledtext.ScrolledText(right_panel, bg=BG_COLOR, fg=ACCENT_COLOR, font=(FONT_FAMILY, 10))
+        right_panel.add(self.team_view, text="🤝 Team View")
+
+        # Vstupní pole
+        input_frame = ttk.Frame(self.root)
+        input_frame.pack(fill="x", padx=5, pady=5)
+
+        self.user_input = tk.Entry(input_frame, bg=PANEL_BG, fg=ACCENT_COLOR, font=(FONT_FAMILY, 12))
+        self.user_input.pack(side="left", fill="x", expand=True)
+        self.user_input.bind("<Return>", self.send_message)
+
+        send_button = ttk.Button(input_frame, text="➡️ Odeslat", command=self.send_message)
+        send_button.pack(side="right")
+
+        # Inicializace systémových statusů
+        self.system_statuses = {}
+        self.status_indicators = {}
+        status_frame = ttk.Frame(self.root, style='Panel.TFrame')
+        status_frame.pack(fill="x", padx=5, pady=5)
+
+        agents = ['manager', 'TestAgent', 'A1', 'A2', 'B1', 'B2']
+        for agent in agents:
+            label = ttk.Label(status_frame, text=f"{agent}: Offline", foreground='red')
+            label.pack(side="left", padx=5)
+            self.status_indicators[agent] = label
+            self.system_statuses[agent] = ('Offline', 'red')
+
+        # Systémové tlačítka
+        system_buttons = ttk.Frame(self.root)
+        system_buttons.pack(fill="x", padx=5, pady=5)
+
+        self.live_mode_button = ttk.Button(system_buttons, text="▶️ Zapnout Live Režim", command=self.toggle_live_mode)
+        self.live_mode_button.pack(side="left")
+
+        screenshot_button = ttk.Button(system_buttons, text="📸 Screenshot", command=self.show_screenshot_menu)
+        screenshot_button.pack(side="left")
+
+        # Seskupení tlačítek Multichat/ladění/testování
+        control_frame = ttk.Frame(self.root, style='Panel.TFrame')
+        control_frame.pack(fill="x", padx=5, pady=5)
+
+        self.multichat_button = ttk.Button(control_frame, text="▶️ Spustit Multichat", command=self.toggle_multichat, style="TButton")
+        self.multichat_button.pack(side="left")
+
+        self.debug_button = ttk.Button(control_frame, text="🛠️ Ladění", command=self.toggle_debugging_mode, state="disabled")
+        self.debug_button.pack(side="left")
+
+        self.test_button = ttk.Button(control_frame, text="🧪 Testovací Režim", command=self.launch_test_mode, state="disabled")
+        self.test_button.pack(side="left")
+
+        # Přidat ikony do chat okna
+        chat_toolbar = ttk.Frame(self.chat_view)
+        chat_toolbar.pack(fill="x")
+
+        self.mic_button = ttk.Button(chat_toolbar, image=ImageTk.PhotoImage(file=MIC_ICON_PATH), command=self.toggle_recording)
+        self.mic_button.pack(side="left")
+        self.speaker_button = ttk.Button(chat_toolbar, image=ImageTk.PhotoImage(file=SPEAKER_ICON_PATH), command=self.toggle_tts)
+        self.speaker_button.pack(side="left")
+
+        # Multichat tabs
+        self.multichat_notebook = ttk.Notebook(self.root)
+        self.multichat_notebook.pack(fill="both", expand=True)
+
+        # Původní chat jako první tab
+        self.add_chat_tab("Hlavní Chat")
+
+        # Načtení paměti a manifestu po startu
+        self.load_gemini_memory()
+
+    def add_chat_tab(self, title):
+        tab_frame = ttk.Frame(self.multichat_notebook)
+        self.multichat_notebook.add(tab_frame, text=title)
+        # Přidat scrolledtext pro zprávy v tab
+        chat_text = scrolledtext.ScrolledText(tab_frame, bg=BG_COLOR, fg=ACCENT_COLOR)
+        chat_text.pack(fill="both", expand=True)
+
+    def toggle_multichat(self):
+        if not self.multichat_active:
+            # Spustit Java
+            self.java_process = subprocess.Popen(["java", "-jar", JAVA_JAR_PATH])
+            self.ws_client.connect()
+            self.multichat_active = True
+            self.multichat_button.config(text="⏹️ Zastavit Multichat")
+            self.debug_button.config(state="normal")
+            self.test_button.config(state="normal")
+        else:
+            # Ukončit Java
+            if self.java_process:
+                self.java_process.terminate()
+            self.multichat_active = False
+            self.multichat_button.config(text="▶️ Spustit Multichat")
+            self.debug_button.config(state="disabled")
+            self.test_button.config(state="disabled")
+
+    def load_gemini_memory(self):
+        # Načíst manifest
+        with open("nova_codebox_manifest.json", "r") as f:
+            manifest = json.load(f)
+        # Načíst paměť z Mongo
+        pamet = list(pamet_col.find())
+        full_prompt = json.dumps(manifest) + "\nPaměť: " + json.dumps(pamet)
+        # Odeslat do Gemini pro inicializaci
+        response = code_model.generate_content(system_prompt + full_prompt)
+        self._display("System", response.text, self.api_view)
+
+    def _generate_gemini_response(self, prompt, stream=True):
+        full_prompt = system_prompt + self.get_chat_history_from_mongo() + "\n" + prompt
+        response = code_model.generate_content(full_prompt, stream=stream)
+        # Uložit do Mongo
+        chat_col.insert_one({"prompt": prompt, "response": response.text, "timestamp": datetime.now().isoformat()})
+        if self.live_mode_enabled.get():
+            self.play_tts(response.text)
+        return response
+
+    def get_chat_history_from_mongo(self):
+        history = list(chat_col.find().sort("timestamp", -1).limit(10))  # Posledních 10 zpráv
+        return "\n".join([f"{msg['prompt']}: {msg['response']}" for msg in history])
+
+    def simulate_input(self, type, action):
+        if type == "mouse":
+            # Např. pyautogui.moveTo(x, y)
+            exec(action)  # Bezpečné? Použít eval pro jednoduché příkazy
+        elif type == "keyboard":
+            pyautogui.press(action)
+
+    def stream_screenshot(self, mode, duration):
+        with mss.mss() as sct:
+            for _ in range(duration * 30):  # 30 FPS
+                if mode == "full":
+                    img = sct.grab(sct.monitors[1])
+                else:
+                    # Okno: Použít pyautogui pro pozici
+                    img = sct.grab({"top": 0, "left": 0, "width": 800, "height": 600})  # Příklad
+                # Stream do Gemini nebo zobrazení
+                cv2.imshow("Stream", np.array(img))
+                cv2.waitKey(1)
+
+    def toggle_recording(self):
+        if not self.recording:
+            # Spustit nahrávání (použít sounddevice nebo podobné pro audio)
+            # Po ukončení: self.stt_process(audio_data)
+            self.recording = True
+        else:
+            self.recording = False
+            # Zastavit, převést STT
+            text = self.stt_process("recorded_audio.wav")
+            self.user_input.insert(tk.END, text)  # Vložit do promptu
+
+    def stt_process(self, audio_path):
+        with open(audio_path, "rb") as audio_file:
+            content = audio_file.read()
+        audio = stt.RecognitionAudio(content=content)
+        config = stt.RecognitionConfig(encoding=stt.RecognitionConfig.AudioEncoding.LINEAR16, sample_rate_hertz=16000, language_code="en-US")
+        response = stt_client.recognize(config=config, audio=audio)
+        return response.results[0].alternatives[0].transcript
+
+    def play_tts(self, text):
+        synthesis_input = tts.SynthesisInput(text=text)
+        voice = tts.VoiceSelectionParams(language_code="en-US", ssml_gender=tts.SsmlVoiceGender.NEUTRAL)
+        audio_config = tts.AudioConfig(audio_encoding=tts.AudioEncoding.MP3)
+        response = tts_client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+        with open("output.mp3", "wb") as out:
+            out.write(response.audio_content)
+        # Přehrát (použít playsound nebo podobné)
+        os.system("mpg123 output.mp3")  # Příklad
+
+    def handle_ws_message(self, message):
+        # Zpracovat zprávy z Java (např. chat zprávy pro multichat)
+        self._display("Java", message['content'], self.chat_view)
+
+    # Rozšířené interní API pro Java calls
+    def api_call(self, command, **kwargs):
+        if command.startswith("java_"):
+            self.ws_client.send_message({"command": command, "args": kwargs})
+        else:
+            # Původní API
+            pass
+
+    def _display(self, sender, content, view, tag=""):
+        if isinstance(content, dict):
+            content = json.dumps(content, indent=2)
+        view.insert(tk.END, f"[{sender}] {content}\n\n", tag)
+        view.see(tk.END)
+
+    def _update_status_banner(self, text):
+        self.status_banner.config(text=text)
+
+    def toggle_live_mode(self):
+        self.live_mode_enabled.set(not self.live_mode_enabled.get())
+        self._update_live_mode_button_style()
+
+    def _update_live_mode_button_style(self):
+        if hasattr(self, 'live_mode_button'):
+            is_live = self.live_mode_enabled.get()
+            self.live_mode_button.config(
+                text="⏹️ Vypnout Live Režim" if is_live else "▶️ Zapnout Live Režim", 
+                style="Live.TButton" if is_live else "TButton"
+            )
+
+    def send_message(self, event=None):
+        prompt = self.user_input.get()
+        if prompt:
+            self._display("User", prompt, self.chat_view)
+            threading.Thread(target=self._generate_gemini_response, args=(prompt,)).start()
+            self.user_input.delete(0, tk.END)
+
+    def show_screenshot_menu(self):
+        menu = tk.Menu(self.root, tearoff=0, bg=PANEL_BG, fg=ACCENT_COLOR)
+        menu.add_command(label="📱 Celá obrazovka", command=lambda: self.take_screenshot('fullscreen'))
+        menu.add_command(label="🖼️ Okno aplikace", command=lambda: self.take_screenshot('app_window'))
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
+    def take_screenshot(self, mode='fullscreen'):
+        if mss is None: 
+            self._update_status_banner("❌ Knihovna 'mss' není nainstalována.")
+            return
+            
+        screenshots_dir = 'screenshots'
+        os.makedirs(screenshots_dir, exist_ok=True)
+        
+        filename = f"screenshot_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png"
+        path = os.path.join(screenshots_dir, filename)
+        
+        with mss.mss() as sct:
+            if mode == 'app_window':
+                monitor = {
+                    "top": self.root.winfo_y(), 
+                    "left": self.root.winfo_x(), 
+                    "width": self.root.winfo_width(), 
+                    "height": self.root.winfo_height()
+                }
+            else:
+                monitor = sct.monitors[1]
+                
+            sct_img = sct.grab(monitor)
+            mss.tools.to_png(sct_img.rgb, sct_img.size, output=path)
+        
+        self._update_status_banner(f"📸 Screenshot uložen do '{path}'")
+        self.open_file_in_viewer(path)
+
+    def open_file_in_viewer(self, path):
+        ext = os.path.splitext(path)[1].lower()
+        if ext in ('.png', '.jpg', '.gif'):
+            self.show_image_in_viewer(path)
+        else:
+            self.show_text_in_viewer(path)
+
+    def show_text_in_viewer(self, path):
+        for widget in self.viewer_content_frame.winfo_children():
+            widget.pack_forget()
+        
+        self.linenumbers.pack(side="left", fill="y")
+        self.file_text.pack(side="left", fill="both", expand=True)
+        
+        self.file_text.config(state="normal")
+        self.file_text.delete("1.0", "end")
+        
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            self.file_text.insert("1.0", content)
+        
+        self.file_text.config(state="disabled")
+        self.current_file_path = path
+        self.current_file_label.config(text=f"📄 {os.path.basename(path)}")
+        self.linenumbers.redraw()
+
+    def show_image_in_viewer(self, path):
+        for widget in self.viewer_content_frame.winfo_children():
+            widget.pack_forget()
+        
+        img = Image.open(path)
+        img = img.resize((self.viewer_content_frame.winfo_width(), self.viewer_content_frame.winfo_height()), Image.ANTIALIAS)
+        photo = ImageTk.PhotoImage(img)
+        
+        self.image_label.config(image=photo)
+        self.image_label.image = photo
+        self.image_label.pack(fill="both", expand=True)
+        
+        self.current_file_path = path
+        self.current_file_label.config(text=f"🖼️ {os.path.basename(path)}")
+
+    def toggle_debugging_mode(self):
+        pass  # Implementace ladění
+
+    def launch_test_mode(self):
+        pass  # Implementace testovacího režimu
+
+    def show_diff_view(self, path: str, old_text: str, new_text: str):
+        for widget in self.viewer_content_frame.winfo_children(): 
+            widget.pack_forget()
+            
+        self.linenumbers.pack(side="left", fill="y")
+        self.file_text.pack(side="left", fill="both", expand=True)
+        
+        self.file_text.config(state="normal")
+        self.file_text.delete("1.0", "end")
+        
+        sm = difflib.SequenceMatcher(None, old_text.splitlines(), new_text.splitlines())
+        
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal":
+                for line in new_text.splitlines()[j1:j2]: 
+                    self.file_text.insert("end", f"  {line}\n")
+            elif tag == "insert":
+                for line in new_text.splitlines()[j1:j2]: 
+                    self.file_text.insert("end", "+ ", ("diff_prefix",))
+                    self.file_text.insert("end", f"{line}\n", ("diff_added",))
+            elif tag == "delete":
+                for line in old_text.splitlines()[i1:i2]: 
+                    self.file_text.insert("end", "- ", ("diff_prefix",))
+                    self.file_text.insert("end", f"{line}\n", ("diff_deleted",))
+            elif tag == "replace":
+                for line in old_text.splitlines()[i1:i2]: 
+                    self.file_text.insert("end", "- ", ("diff_prefix",))
+                    self.file_text.insert("end", f"{line}\n", ("diff_deleted",))
+                for line in new_text.splitlines()[j1:j2]: 
+                    self.file_text.insert("end", "+ ", ("diff_prefix",))
+                    self.file_text.insert("end", f"{line}\n", ("diff_added",))
+        
+        self.current_file_path = os.path.abspath(path)
+        self.current_file_label.config(text=f"📄 {os.path.basename(path)} (náhled změn)")
+        self.viewer_diff_mode = True
+        self.linenumbers.redraw()
+        
+        self._update_status_banner("✅ Zobrazen náhled změn.")
+
+def main():
+    root = tk.Tk()
+    app = AiCodeBoxApp(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()

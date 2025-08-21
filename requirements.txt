@@ -1,3 +1,13 @@
-requests
-Pillow
 python-dotenv
+google-generativeai
+requests
+beautifulsoup4
+Pillow
+pymongo
+pyautogui
+opencv-python
+websocket-client
+google-cloud-texttospeech
+google-cloud-speech
+mss
+psutil
